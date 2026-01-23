@@ -1,0 +1,68 @@
+{
+	"result": {
+		"FileMatches": [
+			{
+				"FileName": "src/main.ts",
+				"Repo": "github.com/example/repo",
+				"ResultID": "github.com/example/repo:src/main.ts",
+				"Language": "TypeScript",
+				"DuplicateID": "",
+				"Branches": ["main"],
+				"Matches": [
+					{
+						"URL": "print?f=src%2Fmain.ts&q=handleRequest&r=github.com/example/repo#l15",
+						"FileName": "src/main.ts",
+						"LineNum": 15,
+						"Fragments": [
+							{
+								"Pre": "function ",
+								"Match": "handleRequest",
+								"Post": "(req: Request) {"
+							}
+						]
+					}
+				],
+				"URL": "print?f=src%2Fmain.ts&q=handleRequest&r=github.com/example/repo"
+			},
+			{
+				"FileName": "src/utils/helpers.ts",
+				"Repo": "github.com/example/repo",
+				"ResultID": "github.com/example/repo:src/utils/helpers.ts",
+				"Language": "TypeScript",
+				"DuplicateID": "",
+				"Branches": ["main", "develop"],
+				"Matches": [
+					{
+						"URL": "print?f=src%2Futils%2Fhelpers.ts&q=handleError&r=github.com/example/repo#l42",
+						"FileName": "src/utils/helpers.ts",
+						"LineNum": 42,
+						"Fragments": [
+							{
+								"Pre": "export function ",
+								"Match": "handleError",
+								"Post": "(error: Error) {"
+							}
+						]
+					}
+				],
+				"URL": "print?f=src%2Futils%2Fhelpers.ts&q=handleError&r=github.com/example/repo"
+			}
+		],
+		"RepoURLs": {
+			"github.com/example/repo": "https://github.com/example/repo"
+		},
+		"Stats": {
+			"ContentBytesLoaded": 1024,
+			"IndexBytesLoaded": 512,
+			"Crashes": 0,
+			"Duration": 15000,
+			"FileCount": 2,
+			"MatchCount": 2,
+			"FilesConsidered": 100,
+			"FilesLoaded": 2,
+			"ShardsScanned": 1
+		},
+		"QueryStr": "handleRequest",
+		"Query": "case_substr:\"handleRequest\""
+	}
+}

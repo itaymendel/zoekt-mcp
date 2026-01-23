@@ -1,0 +1,104 @@
+import { describe, expect, test } from "bun:test";
+import { formatRepositoriesAsText, formatSearchResultsAsText } from "../src/utils.js";
+import type { SearchResponse } from "../src/zoekt/types.js";
+
+const mockSearchResponse: SearchResponse = {
+	result: {
+		FileMatches: [
+			{
+				FileName: "src/main.ts",
+				Repo: "github.com/example/repo",
+				Branches: ["main"],
+				Language: "TypeScript",
+				Matches: [
+					{
+						URL: "print?f=src%2Fmain.ts&q=handleRequest&r=github.com/example/repo#l15",
+						FileName: "src/main.ts",
+						LineNum: 15,
+						Fragments: [
+							{
+								Pre: "function ",
+								Match: "handleRequest",
+								Post: "(req: Request) {",
+							},
+						],
+					},
+				],
+			},
+		],
+		RepoURLs: {
+			"github.com/example/repo": "https://github.com/example/repo",
+		},
+		Stats: {
+			Duration: 15000,
+			FileCount: 1,
+			MatchCount: 1,
+		},
+	},
+};
+
+describe("formatSearchResultsAsText", () => {
+	test("should format results as readable text", () => {
+		const text = formatSearchResultsAsText(mockSearchResponse);
+
+		expect(text).toContain("github.com/example/repo/src/main.ts");
+		expect(text).toContain("TypeScript");
+		expect(text).toContain("15:");
+		expect(text).toContain("handleRequest");
+	});
+
+	test("should handle no matches", () => {
+		const text = formatSearchResultsAsText({ result: {} });
+
+		expect(text).toBe("No matches found.");
+	});
+
+	test("should handle empty files array", () => {
+		const text = formatSearchResultsAsText({ result: { FileMatches: [] } });
+
+		expect(text).toBe("No matches found.");
+	});
+});
+
+describe("formatRepositoriesAsText", () => {
+	test("should extract repositories from search response", () => {
+		const text = formatRepositoriesAsText(mockSearchResponse);
+
+		expect(text).toContain("1 repositories");
+		expect(text).toContain("github.com/example/repo");
+		expect(text).toContain("https://github.com/example/repo");
+		expect(text).toContain("main");
+	});
+
+	test("should handle empty results", () => {
+		const text = formatRepositoriesAsText({ result: {} });
+
+		expect(text).toBe("No repositories found.");
+	});
+
+	test("should deduplicate repositories", () => {
+		const response: SearchResponse = {
+			result: {
+				FileMatches: [
+					{
+						FileName: "file1.ts",
+						Repo: "repo1",
+						Branches: ["main"],
+						Language: "TypeScript",
+					},
+					{
+						FileName: "file2.ts",
+						Repo: "repo1",
+						Branches: ["main"],
+						Language: "TypeScript",
+					},
+				],
+			},
+		};
+
+		const text = formatRepositoriesAsText(response);
+
+		expect(text).toContain("1 repositories");
+		expect(text).toContain("repo1");
+	});
+});
