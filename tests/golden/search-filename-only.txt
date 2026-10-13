@@ -2,4 +2,4 @@
 ## docs/notes.txt  [filename match]
 
 ---
-1 file, 1 matching line.
+1 file, 1 filename match.

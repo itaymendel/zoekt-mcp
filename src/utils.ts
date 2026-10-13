@@ -53,7 +53,7 @@ function formatRepoLine(repo: RepoInfo): string {
 		.join("  ");
 }
 
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+export const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
 
 /** Base-1024 size with one decimal above 1 KiB. */
 export function formatBytes(bytes: number): string {

@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { clipLine, MAX_LINE_CHARS } from "../src/clip.js";
 import {
 	capSearch,
-	clipLine,
 	DEFAULT_OUTPUT_CHARS,
 	FOOTER_RESERVE,
-	MAX_LINE_CHARS,
 	normalizeSearch,
 	renderSearchText,
 } from "../src/search-format.js";
@@ -13,25 +11,17 @@ import { executeSearch, type SearchInput, searchSchema } from "../src/tools/sear
 import { SearchResultSchema } from "../src/zoekt/types.js";
 import { expectGolden } from "./helpers/golden.js";
 import { testDeps } from "./helpers/test-deps.js";
-import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
-
-function fixtureResponse(name: string) {
-	const body = loadCase(name).response.body as { result: unknown };
-	return { result: SearchResultSchema.parse(body.result) };
-}
+import { loadSearchResponse, mockZoektFetch, readRepoFile } from "./helpers/zoekt-fixtures.js";
 
 function stub(raw: unknown) {
 	return { result: SearchResultSchema.parse(raw) };
 }
 
-const NOTES = readFileSync(
-	new URL("./fixtures/zoekt/repos/alpha/docs/notes.txt", import.meta.url),
-	"utf8",
-).split("\n");
+const NOTES = readRepoFile("alpha", "docs/notes.txt").split("\n");
 
 describe("normalizeSearch", () => {
 	test("joins fragments into one line", () => {
-		const model = normalizeSearch(fixtureResponse("search-multi-fragment"), {
+		const model = normalizeSearch(loadSearchResponse("search-multi-fragment"), {
 			query: "handleRequest",
 			contextLines: 0,
 		});
@@ -45,7 +35,7 @@ describe("normalizeSearch", () => {
 	});
 
 	test("strips the trailing newline carried by the last fragment", () => {
-		const model = normalizeSearch(fixtureResponse("search-multi-fragment"), {
+		const model = normalizeSearch(loadSearchResponse("search-multi-fragment"), {
 			query: "q",
 			contextLines: 0,
 		});
@@ -81,7 +71,7 @@ describe("normalizeSearch", () => {
 	});
 
 	test("context rows are numbered against the real file", () => {
-		const model = normalizeSearch(fixtureResponse("search-context"), {
+		const model = normalizeSearch(loadSearchResponse("search-context"), {
 			query: "needle",
 			contextLines: 2,
 		});
@@ -94,7 +84,7 @@ describe("normalizeSearch", () => {
 	});
 
 	test("contextLines=0 yields no context rows", () => {
-		const model = normalizeSearch(fixtureResponse("search-context"), {
+		const model = normalizeSearch(loadSearchResponse("search-context"), {
 			query: "needle",
 			contextLines: 0,
 		});
@@ -198,7 +188,7 @@ describe("capSearch", () => {
 
 	test("FileCount above shown files is reported exactly", () => {
 		const model = capSearch(
-			normalizeSearch(fixtureResponse("search-many-files"), { query: "q", contextLines: 0 }),
+			normalizeSearch(loadSearchResponse("search-many-files"), { query: "q", contextLines: 0 }),
 			{ maxFiles: 3 },
 		);
 
@@ -209,7 +199,7 @@ describe("capSearch", () => {
 
 	test("never claims truncation that did not happen", () => {
 		const model = capSearch(
-			normalizeSearch(fixtureResponse("search-context"), { query: "q", contextLines: 1 }),
+			normalizeSearch(loadSearchResponse("search-context"), { query: "q", contextLines: 1 }),
 			{ maxFiles: 20 },
 		);
 
@@ -219,7 +209,7 @@ describe("capSearch", () => {
 
 	test("maxFiles slices an over-fetched response (num = maxFiles + 1)", () => {
 		const model = capSearch(
-			normalizeSearch(fixtureResponse("search-many-files"), { query: "q", contextLines: 0 }),
+			normalizeSearch(loadSearchResponse("search-many-files"), { query: "q", contextLines: 0 }),
 			{ maxFiles: 2 },
 		);
 
@@ -247,15 +237,17 @@ interface RunOptions {
 
 function render(response: ReturnType<typeof stub>, o: RunOptions = {}) {
 	const maxMatchesPerFile = o.maxMatchesPerFile ?? 5;
+	const maxFiles = o.maxFiles ?? 20;
 	const model = capSearch(
 		normalizeSearch(response, {
 			query: "q",
 			contextLines: o.contextLines ?? 2,
 			maxMatchesPerFile,
+			maxFiles,
 		}),
-		{ maxFiles: o.maxFiles ?? 20, maxChars: o.maxChars },
+		{ maxFiles, maxChars: o.maxChars },
 	);
-	return { model, text: renderSearchText(model, { maxChars: o.maxChars, maxMatchesPerFile }) };
+	return { model, text: renderSearchText(model) };
 }
 
 const zfile = (repo: string, path: string, matches: unknown[], branches = ["HEAD"]) => ({
@@ -269,7 +261,7 @@ const hasLoneSurrogate = (s: string) =>
 	/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
 
 describe("renderSearchText", () => {
-	const multi = () => fixtureResponse("search-multi-fragment");
+	const multi = () => loadSearchResponse("search-multi-fragment");
 
 	test("groups by repo", () => {
 		const response = stub({
@@ -314,7 +306,7 @@ describe("renderSearchText", () => {
 	});
 
 	test("omits branch list when uniform across results", () => {
-		const text = render(fixtureResponse("search-context")).text;
+		const text = render(loadSearchResponse("search-context")).text;
 
 		expect(text).not.toContain("branches");
 		expect(text).toContain("## docs/notes.txt\n");
@@ -330,7 +322,7 @@ describe("renderSearchText", () => {
 	});
 
 	test("context fixture renders - rows and : rows numbered like the real file", () => {
-		const text = render(fixtureResponse("search-context")).text;
+		const text = render(loadSearchResponse("search-context")).text;
 		const rows = text.split("\n").filter((l) => /^\d+[:-]/.test(l));
 
 		expect(rows).toEqual([
@@ -346,7 +338,7 @@ describe("renderSearchText", () => {
 	});
 
 	test("filename-only", () => {
-		const text = render(fixtureResponse("search-file-only")).text;
+		const text = render(loadSearchResponse("search-file-only")).text;
 
 		expect(text).toContain("# example.test/alpha\n## docs/notes.txt  [filename match]\n");
 		expect(text).not.toMatch(/^\d+[:-]/m);
@@ -400,7 +392,7 @@ describe("renderSearchText", () => {
 			[800, 0],
 		] as const) {
 			const text = `${"😀".repeat(before)}NEEDLE${"😀".repeat(after)}`;
-			const clipped = clipLine(text, [[before * 2, before * 2 + 6]]);
+			const clipped = clipLine(text, { focus: [before * 2, before * 2 + 6] });
 
 			expect(hasLoneSurrogate(clipped)).toBe(false);
 			expect(clipped).toContain("NEEDLE");
@@ -441,7 +433,7 @@ describe("renderSearchText", () => {
 	});
 
 	test("FileCount above shown files is reported exactly", () => {
-		const text = render(fixtureResponse("search-many-files"), {
+		const text = render(loadSearchResponse("search-many-files"), {
 			contextLines: 0,
 			maxFiles: 3,
 		}).text;
@@ -460,6 +452,56 @@ describe("renderSearchText", () => {
 		const text = render(response, { maxFiles: 2 }).text;
 
 		expect(text).toContain("Truncated: showing 2 of at least 4 files.");
+	});
+
+	test("lower bound is still reported when only maxMatchesPerFile truncated", () => {
+		const response = stub({
+			Stats: { FileCount: 1, FilesSkipped: 3, MatchCount: 3 },
+			FileMatches: [zfile("r", "a", [matchAt(1), matchAt(2), matchAt(3)])],
+		});
+		const { text } = render(response, { maxMatchesPerFile: 1, contextLines: 0 });
+
+		expect(text).toContain(
+			"Truncated: 2 more matching lines hidden by maxMatchesPerFile=1; at least 1 file matched.",
+		);
+	});
+
+	test("the lower bound is stated once when maxFiles truncated too", () => {
+		const response = stub({
+			Stats: { FileCount: 4, FilesSkipped: 1, MatchCount: 4 },
+			FileMatches: [zfile("r", "a", [matchAt(1)]), zfile("r", "b", [matchAt(1)])],
+		});
+		const { text } = render(response, { maxFiles: 1 });
+
+		expect(text).toContain("showing 1 of at least 4 files.");
+		expect(text.match(/at least/g)).toHaveLength(1);
+	});
+
+	test("budget clause uses singular 'file' for one file", () => {
+		const response = stub({
+			Stats: { FileCount: 1, FilesSkipped: 1, MatchCount: 1 },
+			FileMatches: [zfile("r", "a", [matchAt(1, "x".repeat(300))])],
+		});
+		const { text } = render(response, { maxChars: 50, contextLines: 0 });
+
+		expect(text).toContain("reached after 1 of at least 1 file.");
+	});
+
+	test("filename matches are counted apart from matching lines", () => {
+		const response = stub({
+			Stats: { FileCount: 2, MatchCount: 3 },
+			FileMatches: [
+				zfile("r", "a", [{ LineNum: 0, Fragments: [{ Pre: "", Match: "a", Post: "" }] }]),
+				zfile("r", "b", [matchAt(4), matchAt(9)]),
+			],
+		});
+
+		expect(render(response, { contextLines: 0 }).text).toMatch(
+			/\n---\n2 files, 2 matching lines, 1 filename match\.$/,
+		);
+		expect(render(loadSearchResponse("search-file-only")).text).toMatch(
+			/\n---\n1 file, 1 filename match\.$/,
+		);
 	});
 
 	test("lower bound without any cut is not reported as truncation", () => {
@@ -531,13 +573,13 @@ describe("output budget", () => {
 
 describe("goldens", () => {
 	test("normal", () => {
-		const { text } = render(fixtureResponse("search-multi-fragment"), { contextLines: 0 });
+		const { text } = render(loadSearchResponse("search-multi-fragment"), { contextLines: 0 });
 
 		expectGolden("search-normal.txt", text);
 	});
 
 	test("filename-only", () => {
-		expectGolden("search-filename-only.txt", render(fixtureResponse("search-file-only")).text);
+		expectGolden("search-filename-only.txt", render(loadSearchResponse("search-file-only")).text);
 	});
 
 	test("no-match", () => {
@@ -576,7 +618,7 @@ describe("goldens", () => {
 	});
 
 	test("truncated-by-files", () => {
-		const { text } = render(fixtureResponse("search-many-files"), {
+		const { text } = render(loadSearchResponse("search-many-files"), {
 			contextLines: 0,
 			maxFiles: 3,
 		});

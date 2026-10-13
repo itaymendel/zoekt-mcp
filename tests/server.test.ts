@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Client } from "@modelcontextprotocol/client";
+import pino from "pino";
 import { createMcpServer } from "../src/server.js";
 import { connectTestClient, resultText } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
@@ -105,6 +106,23 @@ describe("tool calls", () => {
 
 		expect(result.isError).toBeFalsy();
 		expect(new URL(requestedUrls[0] ?? "").searchParams.get("num")).toBe("21");
+	});
+});
+
+describe("tool completion logging", () => {
+	test("every tool logs a debug completion line; search adds query, files and durationMs", async () => {
+		const lines: Array<Record<string, unknown>> = [];
+		const logger = pino({ level: "debug" }, { write: (s: string) => lines.push(JSON.parse(s)) });
+		const deps = testDeps(mockZoektFetch({ "/search": "search-file-only" }));
+		const mcp = await connectTestClient({ ...deps, logger });
+		try {
+			await mcp.client.callTool({ name: "search", arguments: { query: "f:notes" } });
+		} finally {
+			await mcp.close();
+		}
+
+		const done = lines.find((l) => l.msg === "search finished");
+		expect(done).toMatchObject({ tool: "search", query: "f:notes", files: 1, durationMs: 0 });
 	});
 });
 

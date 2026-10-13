@@ -97,13 +97,13 @@ export async function executeSearch(
 		{ signal: ctx.signal },
 	);
 
-	const model = capSearch(normalizeSearch(response, { query, contextLines, maxMatchesPerFile }), {
-		maxFiles,
-		maxChars,
-	});
-	ctx.logger?.debug(
-		{ query, files: model.files.length, durationMs: model.durationMs },
-		"search finished",
+	const model = capSearch(
+		normalizeSearch(response, { query, contextLines, maxMatchesPerFile, maxFiles }),
+		{ maxFiles, maxChars },
 	);
-	return { text: renderSearchText(model, { maxChars, maxMatchesPerFile }), data: model };
+	return {
+		text: renderSearchText(model),
+		data: model,
+		summary: { query, files: model.files.length, durationMs: model.durationMs },
+	};
 }

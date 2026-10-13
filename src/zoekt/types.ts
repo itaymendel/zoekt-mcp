@@ -175,6 +175,10 @@ export interface SearchModel {
 		filesOmittedByBudget: number;
 	};
 	durationMs: number;
+	/** The bounds this model was built under; the footer names them. */
+	limits: { maxFiles: number; maxMatchesPerFile: number; maxChars: number };
+	/** Final text of each entry of `files` (same order), filled in by `capSearch`. */
+	blocks: string[];
 }
 
 export interface ListReposOptions {

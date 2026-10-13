@@ -38,8 +38,10 @@ function createToolHandler<I>(
 	return async (input: I, ctx: ServerContext) => {
 		try {
 			logger.debug({ tool: toolName, input }, `Executing ${toolName}`);
-			const result = await execute(input, { signal: ctx.mcpReq.signal, logger });
+			const result = await execute(input, { signal: ctx.mcpReq.signal });
 			const text = typeof result === "string" ? result : result.text;
+			const summary = typeof result === "string" ? undefined : result.summary;
+			logger.debug({ tool: toolName, ...summary }, `${toolName} finished`);
 			return { content: [{ type: "text" as const, text }] };
 		} catch (error) {
 			const message = getErrorMessage(error);
