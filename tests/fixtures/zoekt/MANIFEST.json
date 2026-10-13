@@ -1,0 +1,17 @@
+{
+	"image": "ghcr.io/sourcegraph/zoekt@sha256:403b51206099f04d53bb7fcdfed0c81a20f263722f287cb7830376fd6a7c3923",
+	"cases": {
+		"search-multi-fragment.json": "4dfd80800385675f719feffeadd919a2e4da7defbb753bef6b3d33aecfd3ab3e",
+		"search-context.json": "3f2b068d79e57117928db27749d43232658bd7889c6f44a67625ebde50480283",
+		"search-file-only.json": "20aaf8251a5937d42fa45482aaf02f93a183ade2ae1bb5b0be69d57e3c4fabb6",
+		"search-many-files.json": "94a7224e6c1dff830d3fab9a4640c976a02d080dac4530eff547a25c4c52f076",
+		"list-all.json": "3a396b680e288ba94fbbb91fee5bc20e157324ca0ef6ef40c24d900e878079d3",
+		"list-filter.json": "0c39e40c55300cd4599765f2251d250b62cdf13a4c0616c5e91decbd9f8bfb1f",
+		"search-error-parse.json": "b5a2287ad48358f96d24606762b4782319a1e67630a346fd6669639e458d23e0",
+		"print-ok.json": "e03482c941555cbb292f4c337e75bc6e8a363b1846be8790c7d666cb31f692bc",
+		"print-not-found.json": "ea0ad071048a8789bfe365f12b20e0c43fbd7451489046c54e8a5607a88b62a9",
+		"print-ambiguous.json": "a57120f7a124e6b03bf813f41903e8c55ce0ff6e4576f766842c8ed41b2793e5",
+		"print-not-indexed-binary.json": "4d92fea6b77ee1ba730e6016b4c52450c16ca60863212c1d2800f71dd38042db",
+		"readyz-ok.json": "644503777e78aea451b834cc5a7ab2e606ec6f20fd5cb946bf6972d63034acc8"
+	}
+}

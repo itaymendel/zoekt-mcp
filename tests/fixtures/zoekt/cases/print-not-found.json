@@ -1,0 +1,16 @@
+{
+	"request": {
+		"method": "GET",
+		"path": "/print",
+		"query": {
+			"r": "example.test/alpha",
+			"format": "raw",
+			"f": "nope.txt"
+		}
+	},
+	"response": {
+		"status": 418,
+		"contentType": "text/plain; charset=utf-8",
+		"bodyText": "ambiguous result: []\n"
+	}
+}

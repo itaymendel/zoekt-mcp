@@ -1,0 +1,80 @@
+{
+	"request": {
+		"method": "GET",
+		"path": "/search",
+		"query": {
+			"q": "f:notes",
+			"format": "json"
+		}
+	},
+	"response": {
+		"status": 200,
+		"contentType": "application/json",
+		"body": {
+			"result": {
+				"Last": {
+					"Query": "f:notes",
+					"Num": 50,
+					"Ctx": 0,
+					"AutoFocus": true,
+					"Debug": false
+				},
+				"QueryStr": "f:notes",
+				"Query": "file_substr:\"notes\"",
+				"Stats": {
+					"ContentBytesLoaded": 0,
+					"IndexBytesLoaded": 4,
+					"Crashes": 0,
+					"Duration": 0,
+					"FileCount": 1,
+					"ShardFilesConsidered": 0,
+					"FilesConsidered": 1,
+					"FilesLoaded": 0,
+					"FilesSkipped": 0,
+					"FilesSkippedDueToCancellation": 0,
+					"ShardsScanned": 1,
+					"ShardsSkipped": 0,
+					"ShardsSkippedFilter": 2,
+					"MatchCount": 1,
+					"NgramMatches": 1,
+					"NgramLookups": 64,
+					"Wait": 0,
+					"MatchTreeConstruction": 0,
+					"MatchTreeSearch": 0,
+					"RegexpsConsidered": 0,
+					"FlushReason": 0
+				},
+				"Duration": 0,
+				"FileMatches": [
+					{
+						"FileName": "docs/notes.txt",
+						"Repo": "example.test/alpha",
+						"ResultID": "example.test/alpha:docs/notes.txt",
+						"Language": "Text",
+						"DuplicateID": "",
+						"Branches": [
+							"main",
+							"main-old",
+							"feature"
+						],
+						"Matches": [
+							{
+								"URL": "print?b=main&f=docs%2Fnotes.txt&q=f%3Anotes&r=example.test%2Falpha#l0",
+								"FileName": "docs/notes.txt",
+								"LineNum": 0,
+								"Fragments": [
+									{
+										"Pre": "docs/",
+										"Match": "notes",
+										"Post": ".txt"
+									}
+								]
+							}
+						],
+						"URL": "print?b=main&f=docs%2Fnotes.txt&q=f%3Anotes&r=example.test%2Falpha"
+					}
+				]
+			}
+		}
+	}
+}
