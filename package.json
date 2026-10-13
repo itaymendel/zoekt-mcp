@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "MCP server wrapping Zoekt code search",
   "type": "module",
-  "main": "dist/index.js",
   "bin": {
     "zoekt-mcp": "./dist/index.js"
   },
@@ -15,19 +14,20 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "fixtures:capture": "bun scripts/capture-zoekt-fixtures.ts",
     "smoke": "node scripts/smoke-stdio.mjs"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
-    "pino": "^10.4.0",
-    "zod": "^4"
-  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@modelcontextprotocol/node": "^2.1.1",
+    "@modelcontextprotocol/server": "^2.3.1",
     "@types/bun": "^1.4.3",
-    "typescript": "^7.0.2"
+    "@types/node": "^22.20.5",
+    "pino": "^10.4.0",
+    "typescript": "^7.0.2",
+    "zod": "^4.2.0"
   },
   "keywords": [
     "mcp",
@@ -46,11 +46,12 @@
     "url": "https://github.com/itaymendel/zoekt-mcp/issues"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22"
   },
   "files": [
-    "dist",
+    "dist/index.js",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ]
 }
