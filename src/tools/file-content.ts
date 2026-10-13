@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { formatFileContentAsText } from "../utils.js";
 import type { ZoektClient } from "../zoekt/client.js";
+import type { ToolContext } from "./result.js";
 
 export const fileContentSchema = z.object({
 	repository: z.string().describe("Repository name (e.g., 'github.com/org/repo')"),
@@ -26,8 +27,11 @@ Use this after searching to get the complete contents of a file.
 export async function executeFileContent(
 	client: ZoektClient,
 	input: FileContentInput,
+	ctx: ToolContext,
 ): Promise<string> {
-	const content = await client.getFileContent(input.repository, input.filePath, input.branch);
+	const content = await client.getFileContent(input.repository, input.filePath, input.branch, {
+		signal: ctx.signal,
+	});
 
 	return formatFileContentAsText(input.repository, input.filePath, content, input.branch);
 }

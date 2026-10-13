@@ -13,6 +13,7 @@ import {
 	listReposDescription,
 	listReposSchema,
 } from "./tools/list-repos.js";
+import type { ToolContext, ToolResult } from "./tools/result.js";
 import {
 	executeSearch,
 	type SearchInput,
@@ -31,15 +32,15 @@ export interface ServerDeps {
 function createToolHandler<I>(
 	logger: Logger,
 	toolName: string,
-	execute: (input: I) => Promise<string>,
+	execute: (input: I, ctx: ToolContext) => Promise<string | ToolResult>,
 ) {
 	// The SDK validates, strips unknown keys and applies defaults before invoking the handler.
-	// `_ctx` is unused for now; ctx.mcpReq.signal is the hook for request cancellation.
-	return async (input: I, _ctx: ServerContext) => {
+	return async (input: I, ctx: ServerContext) => {
 		try {
 			logger.debug({ tool: toolName, input }, `Executing ${toolName}`);
-			const result = await execute(input);
-			return { content: [{ type: "text" as const, text: result }] };
+			const result = await execute(input, { signal: ctx.mcpReq.signal });
+			const text = typeof result === "string" ? result : result.text;
+			return { content: [{ type: "text" as const, text }] };
 		} catch (error) {
 			const message = getErrorMessage(error);
 			logger.error({ tool: toolName, error: message }, `${toolName} failed`);
@@ -61,22 +62,24 @@ export function createMcpServer({ client: zoektClient, logger }: ServerDeps): Mc
 	server.registerTool(
 		"search",
 		{ description: searchDescription, inputSchema: searchSchema },
-		createToolHandler(logger, "search", (input: SearchInput) => executeSearch(zoektClient, input)),
+		createToolHandler(logger, "search", (input: SearchInput, ctx) =>
+			executeSearch(zoektClient, input, ctx),
+		),
 	);
 
 	server.registerTool(
 		"list_repos",
 		{ description: listReposDescription, inputSchema: listReposSchema },
-		createToolHandler(logger, "list_repos", (input: ListReposInput) =>
-			executeListRepos(zoektClient, input),
+		createToolHandler(logger, "list_repos", (input: ListReposInput, ctx) =>
+			executeListRepos(zoektClient, input, ctx),
 		),
 	);
 
 	server.registerTool(
 		"file_content",
 		{ description: fileContentDescription, inputSchema: fileContentSchema },
-		createToolHandler(logger, "file_content", (input: FileContentInput) =>
-			executeFileContent(zoektClient, input),
+		createToolHandler(logger, "file_content", (input: FileContentInput, ctx) =>
+			executeFileContent(zoektClient, input, ctx),
 		),
 	);
 

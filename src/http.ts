@@ -31,6 +31,8 @@ export interface HttpServerOptions {
 }
 
 export interface HttpServer {
+	/** @internal test seam: the underlying node:http server, so tests can observe its events. */
+	readonly server: Server;
 	/** Resolves the actually bound address (supports port 0). */
 	start(): Promise<{ host: string; port: number }>;
 	/** `forced` is true when connections had to be dropped after shutdownTimeoutMs. */
@@ -201,6 +203,7 @@ export function createHttpServer({
 	const connections = trackSockets(server);
 
 	return {
+		server,
 		start: () =>
 			new Promise((resolve, reject) => {
 				server.once("error", reject);

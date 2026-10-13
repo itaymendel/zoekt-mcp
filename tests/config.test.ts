@@ -67,6 +67,26 @@ describe("zoekt url", () => {
 		}
 	});
 
+	test("never echoes credentials in a rejected ZOEKT_URL", () => {
+		for (const bad of ["ftp://u:s3cret@x", "u:s3cret@", "//u:s3cret@host", "ftp://s3cret@x"]) {
+			let error: unknown;
+			try {
+				loadConfig({}, { ZOEKT_URL: bad });
+			} catch (e) {
+				error = e;
+			}
+			expect(error).toBeInstanceOf(ConfigError);
+			expect(formatConfigError(error as ConfigError)).not.toContain("s3cret");
+		}
+	});
+
+	test("a malformed percent sequence in credentials is a config error that hides the value", () => {
+		const issues = issuesOf(() => loadConfig({}, { ZOEKT_URL: "http://u:s3%ZZcret@127.0.0.1:1" }));
+		expect(issues[0]?.message).toBe("credentials are not valid percent-encoding");
+		expect(JSON.stringify(issues)).not.toContain("s3");
+		expect(loadConfig({}, { ZOEKT_URL: "http://u:p%40ss@h:1" }).zoektUrl).toContain("p%40ss");
+	});
+
 	test("accepts https with port and path", () => {
 		const config = loadConfig({}, { ZOEKT_URL: "https://zoekt.example.com:6070/base" });
 		expect(config.zoektUrl).toBe("https://zoekt.example.com:6070/base");

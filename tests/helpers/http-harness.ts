@@ -1,4 +1,4 @@
-import { request as nodeRequest } from "node:http";
+import { type IncomingMessage, request as nodeRequest } from "node:http";
 import { createHttpServer, type HttpServerOptions } from "../../src/http.js";
 import { createServerFactory } from "../../src/server.js";
 import { testDeps } from "./test-deps.js";
@@ -11,6 +11,8 @@ export interface TestServer {
 	/** The address the socket actually bound, e.g. 127.0.0.1. */
 	host: string;
 	zoektFetch: MockZoektFetch;
+	/** Resolves with the next request (in arrival order) whose headers the server has parsed. */
+	nextRequest(): Promise<IncomingMessage>;
 	/** Idempotent; `forced` is true when connections had to be dropped after shutdownTimeoutMs. */
 	close(): Promise<{ forced: boolean }>;
 }
@@ -45,6 +47,13 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 		logger: deps.logger,
 		...httpOptions,
 	});
+	const arrived: IncomingMessage[] = [];
+	const waiters: Array<() => void> = [];
+	let consumed = 0;
+	http.server.on("request", (req) => {
+		arrived.push(req);
+		for (const wake of waiters.splice(0)) wake();
+	});
 	const { host: boundHost, port } = await http.start();
 	let closing: Promise<{ forced: boolean }> | undefined;
 	return {
@@ -52,6 +61,12 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 		port,
 		host: boundHost,
 		zoektFetch,
+		async nextRequest() {
+			while (consumed >= arrived.length) {
+				await new Promise<void>((resolve) => waiters.push(resolve));
+			}
+			return arrived[consumed++] as IncomingMessage;
+		},
 		close: () => {
 			closing ??= http.close();
 			return closing;

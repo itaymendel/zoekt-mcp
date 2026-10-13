@@ -86,6 +86,26 @@ describe("exit codes", () => {
 		expect(performance.now() - started).toBeLessThan(2000);
 	});
 
+	test("the startup log redacts userinfo in ZOEKT_URL", async () => {
+		const { stderr, exitCode } = await run(["--url", "http://admin:s3cret-pw@127.0.0.1:9"], {
+			LOG_LEVEL: "debug",
+		});
+
+		expect(exitCode).toBe(0);
+		expect(stderr).toContain("Starting zoekt-mcp");
+		expect(stderr).toContain("http://***:***@127.0.0.1:9");
+		expect(stderr).not.toContain("s3cret-pw");
+		expect(stderr).not.toContain("admin");
+	});
+
+	test("a rejected ZOEKT_URL with credentials never echoes the password", async () => {
+		const { stderr, exitCode } = await run([], { ZOEKT_URL: "ftp://u:s3cret@x" });
+
+		expect(exitCode).toBe(2);
+		expect(stderr).not.toContain("s3cret");
+		expect(stderr).toContain("ZOEKT_URL");
+	});
+
 	test("--help documents stdio as the default and no auto-detect", async () => {
 		const { stdout, exitCode } = await run(["--help"]);
 

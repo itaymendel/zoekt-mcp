@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { formatSearchResultsAsText } from "../utils.js";
 import type { ZoektClient } from "../zoekt/client.js";
+import type { ToolContext } from "./result.js";
 
 export const searchSchema = z.object({
 	query: z.string().describe("Zoekt search query"),
@@ -47,7 +48,6 @@ export const searchDescription = `Search code using Zoekt.
 - \`sym:MyClass\` - Find class/type definitions
 
 ### Special Queries
-- \`type:repo\` - List repositories instead of searching content
 - \`case:yes\` - Case-sensitive search (default is case-insensitive)
 - \`content:pattern\` - Explicitly search file content
 
@@ -62,12 +62,15 @@ export const searchDescription = `Search code using Zoekt.
 - \`import.*react file:\\.tsx$\` - React imports in TSX files
 - \`sym:handleRequest lang:typescript\` - TypeScript function named handleRequest`;
 
-export async function executeSearch(client: ZoektClient, input: SearchInput): Promise<string> {
-	const response = await client.search({
-		query: input.query,
-		num: input.limit,
-		contextLines: input.contextLines,
-	});
+export async function executeSearch(
+	client: ZoektClient,
+	input: SearchInput,
+	ctx: ToolContext,
+): Promise<string> {
+	const response = await client.search(
+		{ query: input.query, num: input.limit, contextLines: input.contextLines },
+		{ signal: ctx.signal },
+	);
 
 	const result = formatSearchResultsAsText(response);
 	const stats = response.result.Stats;

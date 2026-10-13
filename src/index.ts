@@ -9,7 +9,7 @@ import { createHttpServer } from "./http.js";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
 import { createServerFactory } from "./server.js";
-import { getErrorMessage } from "./utils.js";
+import { getErrorMessage, redactUrl } from "./utils.js";
 import { ZoektClient } from "./zoekt/client.js";
 
 // Best-effort: only reachable on a Node old enough to still parse and load the imports above.
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
 		logger = createLogger(config.logLevel);
 
 		logger.info(
-			{ transport: config.mcpTransport, zoektUrl: config.zoektUrl },
+			{ transport: config.mcpTransport, zoektUrl: redactUrl(config.zoektUrl) },
 			"Starting zoekt-mcp",
 		);
 

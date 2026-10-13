@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { formatRepositoriesAsText, formatSearchResultsAsText } from "../src/utils.js";
-import type { SearchResponse } from "../src/zoekt/types.js";
+import { formatSearchResultsAsText } from "../src/utils.js";
+import { SearchResultSchema } from "../src/zoekt/types.js";
 
-const mockSearchResponse: SearchResponse = {
-	result: {
+const mockSearchResponse = {
+	result: SearchResultSchema.parse({
 		FileMatches: [
 			{
 				FileName: "src/main.ts",
@@ -34,7 +34,7 @@ const mockSearchResponse: SearchResponse = {
 			FileCount: 1,
 			MatchCount: 1,
 		},
-	},
+	}),
 };
 
 describe("formatSearchResultsAsText", () => {
@@ -48,57 +48,16 @@ describe("formatSearchResultsAsText", () => {
 	});
 
 	test("should handle no matches", () => {
-		const text = formatSearchResultsAsText({ result: {} });
+		const text = formatSearchResultsAsText({ result: SearchResultSchema.parse({}) });
 
 		expect(text).toBe("No matches found.");
 	});
 
 	test("should handle empty files array", () => {
-		const text = formatSearchResultsAsText({ result: { FileMatches: [] } });
+		const text = formatSearchResultsAsText({
+			result: SearchResultSchema.parse({ FileMatches: [] }),
+		});
 
 		expect(text).toBe("No matches found.");
-	});
-});
-
-describe("formatRepositoriesAsText", () => {
-	test("should extract repositories from search response", () => {
-		const text = formatRepositoriesAsText(mockSearchResponse);
-
-		expect(text).toContain("1 repositories");
-		expect(text).toContain("github.com/example/repo");
-		expect(text).toContain("https://github.com/example/repo");
-		expect(text).toContain("main");
-	});
-
-	test("should handle empty results", () => {
-		const text = formatRepositoriesAsText({ result: {} });
-
-		expect(text).toBe("No repositories found.");
-	});
-
-	test("should deduplicate repositories", () => {
-		const response: SearchResponse = {
-			result: {
-				FileMatches: [
-					{
-						FileName: "file1.ts",
-						Repo: "repo1",
-						Branches: ["main"],
-						Language: "TypeScript",
-					},
-					{
-						FileName: "file2.ts",
-						Repo: "repo1",
-						Branches: ["main"],
-						Language: "TypeScript",
-					},
-				],
-			},
-		};
-
-		const text = formatRepositoriesAsText(response);
-
-		expect(text).toContain("1 repositories");
-		expect(text).toContain("repo1");
 	});
 });
