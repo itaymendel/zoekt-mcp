@@ -4,7 +4,7 @@ import { CASES_URL, FIXTURES_URL, MANIFEST_URL } from "./fixture-repo.js";
 
 /** One captured Zoekt exchange, as written by scripts/capture-zoekt-fixtures.ts. */
 export interface ZoektCase {
-	request: { method: string; path: string; query: Record<string, string> };
+	request: { method: string; path: string; query: Record<string, string>; body?: unknown };
 	response: {
 		status: number;
 		contentType: string;

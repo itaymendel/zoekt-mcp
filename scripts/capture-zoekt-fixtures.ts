@@ -29,12 +29,22 @@ interface CaseDef {
 	name: string;
 	path: string;
 	query: Record<string, string>;
+	/** JSON body; the case is then sent as a POST. */
+	body?: unknown;
 }
 
 const search = (name: string, q: string, extra: Record<string, string> = {}): CaseDef => ({
 	name,
 	path: "/search",
 	query: { q, ...extra, format: "json" },
+});
+
+/** `POST /api/search` (needs `-rpc`): the only endpoint that reports ctags `SymbolInfo`. */
+const apiSearch = (name: string, q: string, maxDocs: number): CaseDef => ({
+	name,
+	path: "/api/search",
+	query: {},
+	body: { Q: q, Opts: { ChunkMatches: true, NumContextLines: 0, MaxDocDisplayCount: maxDocs } },
 });
 
 const print = (name: string, f: string, extra: Record<string, string> = {}): CaseDef => ({
@@ -48,6 +58,8 @@ const CASES: CaseDef[] = [
 	search("search-context", "needle", { ctx: "1" }),
 	search("search-file-only", "f:notes"),
 	search("search-many-files", "common token", { num: "3" }),
+	search("search-sym", "sym:lookup", { ctx: "0" }),
+	apiSearch("api-search-sym", "sym:lookup", 21),
 	search("list-all", 'r:"."'),
 	search("list-filter", 'r:"(?i)ALPHA"'),
 	search("search-error-parse", "("),
@@ -109,13 +121,26 @@ function buildRepo(repo: FixtureRepo, reposDir: string): void {
 async function capture(baseUrl: string, def: CaseDef) {
 	const url = new URL(def.path, baseUrl);
 	url.search = new URLSearchParams(def.query).toString();
-	const res = await fetch(url);
+	const res =
+		def.body === undefined
+			? await fetch(url)
+			: await fetch(url, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(def.body),
+				});
 	const contentType = res.headers.get("content-type") ?? "";
 	const text = await res.text();
 	const response: Record<string, unknown> = { status: res.status, contentType };
 	if (contentType.includes("json")) response.body = scrub(JSON.parse(text));
 	else response.bodyText = text;
-	return { request: { method: "GET", path: def.path, query: def.query }, response };
+	const request: Record<string, unknown> = {
+		method: def.body === undefined ? "GET" : "POST",
+		path: def.path,
+		query: def.query,
+	};
+	if (def.body !== undefined) request.body = def.body;
+	return { request, response };
 }
 
 async function main() {
