@@ -15,7 +15,9 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "fixtures:capture": "bun scripts/capture-zoekt-fixtures.ts",
+    "smoke": "node scripts/smoke-stdio.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

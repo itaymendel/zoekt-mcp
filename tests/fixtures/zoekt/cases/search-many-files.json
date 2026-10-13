@@ -1,0 +1,150 @@
+{
+	"request": {
+		"method": "GET",
+		"path": "/search",
+		"query": {
+			"q": "common token",
+			"num": "3",
+			"format": "json"
+		}
+	},
+	"response": {
+		"status": 200,
+		"contentType": "application/json",
+		"body": {
+			"result": {
+				"Last": {
+					"Query": "common token",
+					"Num": 3,
+					"Ctx": 0,
+					"AutoFocus": true,
+					"Debug": false
+				},
+				"QueryStr": "common token",
+				"Query": "(and substr:\"common\" substr:\"token\")",
+				"Stats": {
+					"ContentBytesLoaded": 128,
+					"IndexBytesLoaded": 32,
+					"Crashes": 0,
+					"Duration": 0,
+					"FileCount": 8,
+					"ShardFilesConsidered": 0,
+					"FilesConsidered": 8,
+					"FilesLoaded": 8,
+					"FilesSkipped": 0,
+					"FilesSkippedDueToCancellation": 0,
+					"ShardsScanned": 1,
+					"ShardsSkipped": 0,
+					"ShardsSkippedFilter": 2,
+					"MatchCount": 8,
+					"NgramMatches": 16,
+					"NgramLookups": 208,
+					"Wait": 0,
+					"MatchTreeConstruction": 0,
+					"MatchTreeSearch": 0,
+					"RegexpsConsidered": 0,
+					"FlushReason": 0
+				},
+				"Duration": 0,
+				"FileMatches": [
+					{
+						"FileName": "src/f1.txt",
+						"Repo": "example.test/alpha",
+						"ResultID": "example.test/alpha:src/f1.txt",
+						"Language": "Text",
+						"DuplicateID": "",
+						"Branches": [
+							"main",
+							"main-old",
+							"feature"
+						],
+						"Matches": [
+							{
+								"URL": "print?b=main&f=src%2Ff1.txt&q=common+token&r=example.test%2Falpha#l1",
+								"FileName": "src/f1.txt",
+								"LineNum": 1,
+								"Fragments": [
+									{
+										"Pre": "",
+										"Match": "common",
+										"Post": ""
+									},
+									{
+										"Pre": " ",
+										"Match": "token",
+										"Post": "\n"
+									}
+								]
+							}
+						],
+						"URL": "print?b=main&f=src%2Ff1.txt&q=common+token&r=example.test%2Falpha"
+					},
+					{
+						"FileName": "src/f2.txt",
+						"Repo": "example.test/alpha",
+						"ResultID": "example.test/alpha:src/f2.txt",
+						"Language": "Text",
+						"DuplicateID": "example.test/alpha:src/f1.txt",
+						"Branches": [
+							"main",
+							"main-old",
+							"feature"
+						],
+						"Matches": [
+							{
+								"URL": "print?b=main&f=src%2Ff2.txt&q=common+token&r=example.test%2Falpha#l1",
+								"FileName": "src/f2.txt",
+								"LineNum": 1,
+								"Fragments": [
+									{
+										"Pre": "",
+										"Match": "common",
+										"Post": ""
+									},
+									{
+										"Pre": " ",
+										"Match": "token",
+										"Post": "\n"
+									}
+								]
+							}
+						],
+						"URL": "print?b=main&f=src%2Ff2.txt&q=common+token&r=example.test%2Falpha"
+					},
+					{
+						"FileName": "src/f3.txt",
+						"Repo": "example.test/alpha",
+						"ResultID": "example.test/alpha:src/f3.txt",
+						"Language": "Text",
+						"DuplicateID": "example.test/alpha:src/f1.txt",
+						"Branches": [
+							"main",
+							"main-old",
+							"feature"
+						],
+						"Matches": [
+							{
+								"URL": "print?b=main&f=src%2Ff3.txt&q=common+token&r=example.test%2Falpha#l1",
+								"FileName": "src/f3.txt",
+								"LineNum": 1,
+								"Fragments": [
+									{
+										"Pre": "",
+										"Match": "common",
+										"Post": ""
+									},
+									{
+										"Pre": " ",
+										"Match": "token",
+										"Post": "\n"
+									}
+								]
+							}
+						],
+						"URL": "print?b=main&f=src%2Ff3.txt&q=common+token&r=example.test%2Falpha"
+					}
+				]
+			}
+		}
+	}
+}

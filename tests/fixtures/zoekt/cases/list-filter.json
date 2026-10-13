@@ -1,0 +1,63 @@
+{
+	"request": {
+		"method": "GET",
+		"path": "/search",
+		"query": {
+			"q": "r:\"(?i)ALPHA\"",
+			"format": "json"
+		}
+	},
+	"response": {
+		"status": 200,
+		"contentType": "application/json",
+		"body": {
+			"repos": {
+				"Last": {
+					"Query": "r:\"(?i)ALPHA\"",
+					"Num": 0,
+					"Ctx": 0,
+					"AutoFocus": true,
+					"Debug": false
+				},
+				"Stats": {
+					"Repos": 1,
+					"Shards": 1,
+					"Documents": 13,
+					"IndexBytes": 852,
+					"ContentBytes": 448,
+					"NewLinesCount": 23,
+					"DefaultBranchNewLinesCount": 20,
+					"OtherBranchesNewLinesCount": 41
+				},
+				"Repos": [
+					{
+						"Name": "example.test/alpha",
+						"URL": "",
+						"IndexTime": "1970-01-01T00:00:00Z",
+						"Branches": [
+							{
+								"Name": "main",
+								"Version": "2f77c548bb76294591ff84b0195a1c742998a28a",
+								"URL": ""
+							},
+							{
+								"Name": "main-old",
+								"Version": "3a2a361f90746fa7b565dbfd16210b88d017ee86",
+								"URL": ""
+							},
+							{
+								"Name": "feature",
+								"Version": "115f341ddf85e8d64107abf59c8d990af1561af2",
+								"URL": ""
+							}
+						],
+						"Files": 13,
+						"Metadata": null,
+						"Size": 448,
+						"MemorySize": 852
+					}
+				]
+			}
+		}
+	}
+}

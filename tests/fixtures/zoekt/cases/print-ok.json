@@ -1,0 +1,17 @@
+{
+	"request": {
+		"method": "GET",
+		"path": "/print",
+		"query": {
+			"r": "example.test/alpha",
+			"format": "raw",
+			"f": "docs/notes.txt",
+			"b": "main"
+		}
+	},
+	"response": {
+		"status": 200,
+		"contentType": "text/plain; charset=utf-8",
+		"bodyText": "first line\nneedle one\nthird line\nneedle two\nneedle three\n"
+	}
+}

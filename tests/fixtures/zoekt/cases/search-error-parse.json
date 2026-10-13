@@ -1,0 +1,15 @@
+{
+	"request": {
+		"method": "GET",
+		"path": "/search",
+		"query": {
+			"q": "(",
+			"format": "json"
+		}
+	},
+	"response": {
+		"status": 418,
+		"contentType": "text/plain; charset=utf-8",
+		"bodyText": "query: missing close paren, got token <nil>\n"
+	}
+}
