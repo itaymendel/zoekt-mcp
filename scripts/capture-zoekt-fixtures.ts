@@ -8,10 +8,9 @@
  * MANIFEST.json. Output is deterministic: running it twice leaves the working tree unchanged.
  */
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	ALPHA_REPO,
 	CASES_DIR,
@@ -21,39 +20,46 @@ import {
 	GIT_FIXED_ENV,
 	MANIFEST_PATH,
 	REPO_SOURCES_DIR,
+	sha256,
 } from "../tests/helpers/fixture-repo.js";
+import type { ZoektManifest } from "../tests/helpers/zoekt-fixtures.js";
 import { indexRepos, startWebserver, stop, ZOEKT_IMAGE } from "./lib/zoekt-docker.js";
 
 interface CaseDef {
 	name: string;
 	path: string;
-	query?: Record<string, string>;
+	query: Record<string, string>;
 }
 
-const SEARCH = { format: "json" };
-const PRINT = { r: ALPHA_REPO, format: "raw" };
+const search = (name: string, q: string, extra: Record<string, string> = {}): CaseDef => ({
+	name,
+	path: "/search",
+	query: { q, ...extra, format: "json" },
+});
+
+const print = (name: string, f: string, extra: Record<string, string> = {}): CaseDef => ({
+	name,
+	path: "/print",
+	query: { r: ALPHA_REPO, format: "raw", f, ...extra },
+});
 
 const CASES: CaseDef[] = [
-	{
-		name: "search-multi-fragment",
-		path: "/search",
-		query: { q: "handleRequest", ctx: "0", ...SEARCH },
-	},
-	{ name: "search-context", path: "/search", query: { q: "needle", ctx: "1", ...SEARCH } },
-	{ name: "search-file-only", path: "/search", query: { q: "f:notes", ...SEARCH } },
-	{ name: "search-many-files", path: "/search", query: { q: "common token", num: "3", ...SEARCH } },
-	{ name: "list-all", path: "/search", query: { q: 'r:"."', ...SEARCH } },
-	{ name: "list-filter", path: "/search", query: { q: 'r:"(?i)ALPHA"', ...SEARCH } },
-	{ name: "search-error-parse", path: "/search", query: { q: "(", ...SEARCH } },
-	{ name: "print-ok", path: "/print", query: { ...PRINT, f: "docs/notes.txt", b: "main" } },
-	{ name: "print-not-found", path: "/print", query: { ...PRINT, f: "nope.txt" } },
-	{ name: "print-ambiguous", path: "/print", query: { ...PRINT, f: "Makefile" } },
+	search("search-multi-fragment", "handleRequest", { ctx: "0" }),
+	search("search-context", "needle", { ctx: "1" }),
+	search("search-file-only", "f:notes"),
+	search("search-many-files", "common token", { num: "3" }),
+	search("list-all", 'r:"."'),
+	search("list-filter", 'r:"(?i)ALPHA"'),
+	search("search-error-parse", "("),
+	print("print-ok", "docs/notes.txt", { b: "main" }),
+	print("print-not-found", "nope.txt"),
+	print("print-ambiguous", "Makefile"),
 	{
 		name: "print-not-indexed-binary",
 		path: "/print",
 		query: { r: DELTA_REPO, f: "bin.dat", format: "raw" },
 	},
-	{ name: "readyz-ok", path: "/readyz" },
+	{ name: "readyz-ok", path: "/readyz", query: {} },
 ];
 
 /** Timing and index-time values vary per run; everything else is kept verbatim. */
@@ -83,7 +89,7 @@ function git(cwd: string, args: string[]): void {
 
 function buildRepo(repo: FixtureRepo, reposDir: string): void {
 	const dest = join(reposDir, repo.dir);
-	cpSync(resolve(REPO_SOURCES_DIR, repo.dir), dest, { recursive: true });
+	cpSync(join(REPO_SOURCES_DIR, repo.dir), dest, { recursive: true });
 	git(dest, ["init", "-q", "-b", "main"]);
 	git(dest, ["config", "zoekt.name", repo.name]);
 	git(dest, ["add", "-A"]);
@@ -101,18 +107,16 @@ function buildRepo(repo: FixtureRepo, reposDir: string): void {
 }
 
 async function capture(baseUrl: string, def: CaseDef) {
-	const query = def.query ?? {};
-	const qs = new URLSearchParams(query).toString();
-	const res = await fetch(`${baseUrl}${def.path}${qs ? `?${qs}` : ""}`);
+	const url = new URL(def.path, baseUrl);
+	url.search = new URLSearchParams(def.query).toString();
+	const res = await fetch(url);
 	const contentType = res.headers.get("content-type") ?? "";
 	const text = await res.text();
 	const response: Record<string, unknown> = { status: res.status, contentType };
 	if (contentType.includes("json")) response.body = scrub(JSON.parse(text));
 	else response.bodyText = text;
-	return { request: { method: "GET", path: def.path, query }, response };
+	return { request: { method: "GET", path: def.path, query: def.query }, response };
 }
-
-const sha256 = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 
 async function main() {
 	const work = mkdtempSync(join(tmpdir(), "zoekt-fixtures-"));
@@ -124,34 +128,25 @@ async function main() {
 	let containerId: string | undefined;
 	try {
 		for (const repo of FIXTURE_REPOS) buildRepo(repo, reposDir);
-		indexRepos(
-			reposDir,
-			indexDir,
-			FIXTURE_REPOS.map((r) => ({
-				dir: r.dir,
-				branches: r.indexBranches,
-				disableCtags: r.disableCtags,
-			})),
-		);
+		indexRepos(reposDir, indexDir, FIXTURE_REPOS);
 
 		const server = await startWebserver(indexDir);
 		containerId = server.containerId;
 
-		const casesDir = resolve(CASES_DIR);
-		rmSync(casesDir, { recursive: true, force: true });
-		mkdirSync(casesDir, { recursive: true });
+		rmSync(CASES_DIR, { recursive: true, force: true });
+		mkdirSync(CASES_DIR, { recursive: true });
 
 		const hashes: Record<string, string> = {};
 		for (const def of CASES) {
 			const file = `${JSON.stringify(await capture(server.baseUrl, def), null, "\t")}\n`;
-			writeFileSync(join(casesDir, `${def.name}.json`), file);
+			writeFileSync(join(CASES_DIR, `${def.name}.json`), file);
 			hashes[`${def.name}.json`] = sha256(file);
 			console.log(`captured ${def.name}`);
 		}
 
-		const manifest = { image: ZOEKT_IMAGE, cases: hashes };
-		writeFileSync(resolve(MANIFEST_PATH), `${JSON.stringify(manifest, null, "\t")}\n`);
-		console.log(`wrote ${readdirSync(casesDir).length} cases and MANIFEST.json`);
+		const manifest: ZoektManifest = { image: ZOEKT_IMAGE, cases: hashes };
+		writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, "\t")}\n`);
+		console.log(`wrote ${CASES.length} cases and MANIFEST.json`);
 	} finally {
 		if (containerId) stop(containerId);
 		rmSync(work, { recursive: true, force: true });

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import type { FixtureRepo } from "../../tests/helpers/fixture-repo.js";
 
 /**
  * Pinned upstream Zoekt image (revision 27517a30ae6d). Upstream publishes no tags, so the
@@ -14,49 +15,45 @@ function docker(args: string[]): string {
 	return execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
-export interface IndexRepoSpec {
-	/** Path of the git repository inside `reposDir`. */
-	dir: string;
-	branches: string;
-	disableCtags: boolean;
-}
-
-/** Runs `zoekt-git-index` for each repository. `reposDir` holds git repos, `indexDir` receives shards. */
-export function indexRepos(reposDir: string, indexDir: string, specs: IndexRepoSpec[]): void {
-	const uid = process.getuid?.() ?? 1000;
-	const gid = process.getgid?.() ?? 1000;
-	for (const spec of specs) {
-		const args = [
-			"run",
-			"--rm",
-			"--platform",
-			PLATFORM,
-			"--user",
-			`${uid}:${gid}`,
-			"-e",
-			"HOME=/tmp",
-			"-e",
-			"GIT_CONFIG_COUNT=1",
-			"-e",
-			"GIT_CONFIG_KEY_0=safe.directory",
-			"-e",
-			"GIT_CONFIG_VALUE_0=*",
-			"-v",
-			`${reposDir}:/repos:ro`,
-			"-v",
-			`${indexDir}:/index`,
-			"--entrypoint",
-			"zoekt-git-index",
-			ZOEKT_IMAGE,
-			"-index",
-			"/index",
-			"-branches",
-			spec.branches,
-		];
-		if (spec.disableCtags) args.push("-disable_ctags");
-		args.push(`/repos/${spec.dir}`);
-		docker(args);
-	}
+/**
+ * Runs `zoekt-git-index` for every repository in one container. `reposDir` holds the git
+ * repos, `indexDir` receives the shards.
+ */
+export function indexRepos(
+	reposDir: string,
+	indexDir: string,
+	repos: readonly Pick<FixtureRepo, "dir" | "indexBranches" | "disableCtags">[],
+): void {
+	const env = {
+		HOME: "/tmp",
+		GIT_CONFIG_COUNT: "1",
+		GIT_CONFIG_KEY_0: "safe.directory",
+		GIT_CONFIG_VALUE_0: "*",
+	};
+	const script = repos
+		.map((repo) => {
+			const ctags = repo.disableCtags ? " -disable_ctags" : "";
+			return `zoekt-git-index -index /index -branches ${repo.indexBranches}${ctags} /repos/${repo.dir}`;
+		})
+		.join(" && ");
+	docker([
+		"run",
+		"--rm",
+		"--platform",
+		PLATFORM,
+		"--user",
+		`${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
+		...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+		"-v",
+		`${reposDir}:/repos:ro`,
+		"-v",
+		`${indexDir}:/index`,
+		"--entrypoint",
+		"sh",
+		ZOEKT_IMAGE,
+		"-c",
+		script,
+	]);
 }
 
 export interface RunningWebserver {
@@ -80,24 +77,32 @@ export async function startWebserver(indexDir: string): Promise<RunningWebserver
 	]).trim();
 
 	try {
-		const port = docker(["port", containerId, "6070/tcp"]).trim().split("\n")[0].split(":").pop();
+		const port = docker([
+			"inspect",
+			"-f",
+			'{{(index (index .NetworkSettings.Ports "6070/tcp") 0).HostPort}}',
+			containerId,
+		]).trim();
 		const baseUrl = `http://127.0.0.1:${port}`;
-
-		const deadline = Date.now() + 60_000;
-		for (;;) {
-			try {
-				const res = await fetch(`${baseUrl}/readyz`);
-				if (res.ok) return { containerId, baseUrl };
-			} catch {
-				// not up yet
-			}
-			if (Date.now() > deadline) throw new Error("zoekt-webserver did not become ready in 60s");
-			await new Promise((resolve) => setTimeout(resolve, 250));
-		}
+		await waitReady(baseUrl, 60_000);
+		return { containerId, baseUrl };
 	} catch (error) {
 		stop(containerId);
 		throw error;
 	}
+}
+
+async function waitReady(baseUrl: string, timeoutMs: number): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() <= deadline) {
+		try {
+			if ((await fetch(`${baseUrl}/readyz`)).ok) return;
+		} catch {
+			// not up yet
+		}
+		await new Promise((resolve) => setTimeout(resolve, 250));
+	}
+	throw new Error(`zoekt-webserver did not become ready in ${timeoutMs / 1000}s`);
 }
 
 export function stop(containerId: string): void {

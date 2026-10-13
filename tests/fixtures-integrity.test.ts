@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
-import { loadCase } from "./helpers/zoekt-fixtures.js";
+import { CASES_URL, sha256 } from "./helpers/fixture-repo.js";
+import { loadCase, loadManifest } from "./helpers/zoekt-fixtures.js";
 
 interface RawFileMatch {
 	Matches: {
@@ -12,12 +12,14 @@ interface RawFileMatch {
 	}[];
 }
 
-const fileMatches = (name: string): RawFileMatch[] =>
-	(loadCase(name).response.body as { result: { FileMatches: RawFileMatch[] } }).result.FileMatches;
+const matchLines = (name: string) =>
+	(
+		loadCase(name).response.body as { result: { FileMatches: RawFileMatch[] } }
+	).result.FileMatches.flatMap((f) => f.Matches);
 
 describe("Zoekt fixtures", () => {
 	test("search-multi-fragment has a line with 2 fragments", () => {
-		const lines = fileMatches("search-multi-fragment").flatMap((f) => f.Matches);
+		const lines = matchLines("search-multi-fragment");
 		const multi = lines.find((m) => m.Fragments.length === 2);
 		expect(multi).toBeDefined();
 		const [first, last] = multi?.Fragments ?? [];
@@ -26,13 +28,13 @@ describe("Zoekt fixtures", () => {
 	});
 
 	test("search-context populates Before and After as strings", () => {
-		const lines = fileMatches("search-context").flatMap((f) => f.Matches);
+		const lines = matchLines("search-context");
 		expect(lines.some((m) => typeof m.Before === "string")).toBe(true);
 		expect(lines.some((m) => typeof m.After === "string")).toBe(true);
 	});
 
 	test("search-file-only matches have LineNum 0", () => {
-		const lines = fileMatches("search-file-only").flatMap((f) => f.Matches);
+		const lines = matchLines("search-file-only");
 		expect(lines.length).toBeGreaterThan(0);
 		for (const m of lines) expect(m.LineNum).toBe(0);
 	});
@@ -70,17 +72,11 @@ describe("Zoekt fixtures", () => {
 	});
 
 	test("MANIFEST sha256 matches every case file", () => {
-		const dir = new URL("./fixtures/zoekt/", import.meta.url);
-		const manifest = JSON.parse(readFileSync(new URL("MANIFEST.json", dir), "utf8")) as {
-			image: string;
-			cases: Record<string, string>;
-		};
-		const files = readdirSync(new URL("cases/", dir)).sort();
+		const manifest = loadManifest();
+		const files = readdirSync(CASES_URL).sort();
 		expect(Object.keys(manifest.cases).sort()).toEqual(files);
 		for (const file of files) {
-			const digest = createHash("sha256")
-				.update(readFileSync(new URL(`cases/${file}`, dir)))
-				.digest("hex");
+			const digest = sha256(readFileSync(new URL(file, CASES_URL)));
 			expect(digest).toBe(manifest.cases[file]);
 		}
 	});

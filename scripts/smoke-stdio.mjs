@@ -9,7 +9,9 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -18,64 +20,59 @@ const expectedTools = JSON.parse(readFileSync(join(here, "expected-tools.json"),
 const GLOBAL_TIMEOUT_MS = 20_000;
 const EXIT_TIMEOUT_MS = 5_000;
 const PROTOCOL_VERSION = "2025-11-25";
+// Dummy upstream: never contacted during initialize/tools/list.
+const DUMMY_ZOEKT_URL = "http://127.0.0.1:9";
+const USAGE = "usage: smoke-stdio.mjs --entry <file> | --bin <exe>";
 
-function parseCli(argv) {
-	const opts = {};
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-		if (arg === "--entry" || arg === "--bin") {
-			opts[arg.slice(2)] = argv[++i];
-		} else {
-			fail(`unknown argument: ${arg}\nusage: smoke-stdio.mjs --entry <file> | --bin <exe>`);
-		}
-	}
-	if (!opts.entry === !opts.bin) {
-		fail("usage: smoke-stdio.mjs --entry <file> | --bin <exe> (exactly one)");
-	}
-	return opts;
-}
+let child;
+let stderr = "";
+let globalTimer;
 
 function fail(message) {
 	console.error(`FAIL ${message}`);
 	process.exit(1);
 }
 
+function abort(message) {
+	clearTimeout(globalTimer);
+	child?.kill("SIGKILL");
+	fail(`${message}${stderr ? `\nstderr: ${stderr.trim()}` : ""}`);
+}
+
+function parseCli(argv) {
+	let values;
+	try {
+		({ values } = parseArgs({
+			args: argv,
+			options: { entry: { type: "string" }, bin: { type: "string" } },
+			strict: true,
+		}));
+	} catch (error) {
+		return fail(`${error.message}\n${USAGE}`);
+	}
+	if (!values.entry === !values.bin) {
+		fail(`${USAGE} (exactly one)`);
+	}
+	return values;
+}
+
 const opts = parseCli(process.argv.slice(2));
-const serverArgs = ["--url", "http://127.0.0.1:9", "--transport", "stdio", "--log-level", "error"];
+const serverArgs = ["--url", DUMMY_ZOEKT_URL, "--transport", "stdio", "--log-level", "error"];
 const [command, args] = opts.entry
 	? [process.execPath, [opts.entry, ...serverArgs]]
 	: [opts.bin, serverArgs];
 
-const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
-let stderr = "";
+child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
 child.stderr.on("data", (chunk) => {
 	stderr += chunk;
 });
 
-const globalTimer = setTimeout(() => {
-	child.kill("SIGKILL");
-	fail(`timed out after ${GLOBAL_TIMEOUT_MS} ms${stderr ? `\nstderr: ${stderr.trim()}` : ""}`);
-}, GLOBAL_TIMEOUT_MS);
-
-function abort(message) {
-	clearTimeout(globalTimer);
-	child.kill("SIGKILL");
-	fail(`${message}${stderr ? `\nstderr: ${stderr.trim()}` : ""}`);
-}
+globalTimer = setTimeout(() => abort(`timed out after ${GLOBAL_TIMEOUT_MS} ms`), GLOBAL_TIMEOUT_MS);
 
 const pending = new Map();
-let buffer = "";
 
-child.stdout.setEncoding("utf8");
-child.stdout.on("data", (chunk) => {
-	buffer += chunk;
-	let newline = buffer.indexOf("\n");
-	while (newline !== -1) {
-		const line = buffer.slice(0, newline).replace(/\r$/, "");
-		buffer = buffer.slice(newline + 1);
-		if (line.length > 0) handleLine(line);
-		newline = buffer.indexOf("\n");
-	}
+createInterface({ input: child.stdout }).on("line", (line) => {
+	if (line.length > 0) handleLine(line);
 });
 
 function handleLine(line) {

@@ -4,10 +4,18 @@
  * branch (`main`); `overlays` describe how other branches differ from it.
  */
 
-export const FIXTURES_ROOT = "tests/fixtures/zoekt";
-export const REPO_SOURCES_DIR = `${FIXTURES_ROOT}/repos`;
-export const CASES_DIR = `${FIXTURES_ROOT}/cases`;
-export const MANIFEST_PATH = `${FIXTURES_ROOT}/MANIFEST.json`;
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+/** Single base location for everything under tests/fixtures/zoekt. */
+export const FIXTURES_URL = new URL("../fixtures/zoekt/", import.meta.url);
+export const CASES_URL = new URL("cases/", FIXTURES_URL);
+export const MANIFEST_URL = new URL("MANIFEST.json", FIXTURES_URL);
+export const REPO_SOURCES_DIR = fileURLToPath(new URL("repos/", FIXTURES_URL));
+export const CASES_DIR = fileURLToPath(CASES_URL);
+export const MANIFEST_PATH = fileURLToPath(MANIFEST_URL);
+
+export const sha256 = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 
 export const ALPHA_REPO = "example.test/alpha";
 export const BETA_REPO = "example.test/beta";

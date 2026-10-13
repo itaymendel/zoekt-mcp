@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { CASES_URL, MANIFEST_URL } from "./fixture-repo.js";
 
 /** One captured Zoekt exchange, as written by scripts/capture-zoekt-fixtures.ts. */
 export interface ZoektCase {
@@ -11,7 +12,16 @@ export interface ZoektCase {
 	};
 }
 
-const CASES_URL = new URL("../fixtures/zoekt/cases/", import.meta.url);
+/** Shape of tests/fixtures/zoekt/MANIFEST.json. */
+export interface ZoektManifest {
+	image: string;
+	/** case file name -> sha256 of the file contents */
+	cases: Record<string, string>;
+}
+
+export function loadManifest(): ZoektManifest {
+	return JSON.parse(readFileSync(MANIFEST_URL, "utf8")) as ZoektManifest;
+}
 
 export function loadCase(name: string): ZoektCase {
 	return JSON.parse(readFileSync(new URL(`${name}.json`, CASES_URL), "utf8")) as ZoektCase;
