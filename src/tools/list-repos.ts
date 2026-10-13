@@ -34,15 +34,16 @@ export const listReposMeta = {
 	annotations: READ_ONLY_ANNOTATIONS,
 };
 
-export const listReposDescription = `List indexed repositories, one line per repository: name, branches (branch@sha), file count, size and index date.
+export const listReposDescription = `List indexed repositories, one line each: name, branches (branch@sha), file count, size and index date. Sorted by name.
 
-\`filter\` is an unanchored, case-insensitive regex on the repository name (prefix it with \`(?-i)\` for case-sensitive). Results are sorted by name; use \`limit\` and \`offset\` to page.
+\`filter\` is an unanchored regex on the repository name, case-insensitive by default (start it with \`(?-i)\` for case-sensitive). Page with \`limit\` and \`offset\`.
+
+Use the exact names as \`repo\` in read_file and as \`r:"^name$"\` in search.
 
 ### Examples
-- List all repos: \`{}\`
-- Filter by org: \`{ "filter": "^github\\\\.com/myorg/" }\`
-- Filter by name: \`{ "filter": "api" }\`
-- Next page: \`{ "limit": 50, "offset": 50 }\``;
+- \`{}\`
+- \`{ "filter": "^github\\\\.com/myorg/" }\`
+- \`{ "limit": 50, "offset": 50 }\``;
 
 export function normalizeRepoList(
 	wire: RepoListWire,

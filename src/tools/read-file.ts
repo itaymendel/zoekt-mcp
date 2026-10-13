@@ -4,7 +4,6 @@ import {
 	DEFAULT_WINDOW_LINES,
 	formatFileContent,
 	MAX_FETCH_BYTES,
-	MAX_LINE_LENGTH,
 	MAX_OUTPUT_CHARS,
 	MAX_WINDOW_LINES,
 	resolveRange,
@@ -45,17 +44,11 @@ export const readFileMeta = { title: "Read file", annotations: READ_ONLY_ANNOTAT
 
 export const readFileDescription = `Read a file from an indexed repository as numbered lines (\`N:text\`).
 
-Returns at most ${DEFAULT_WINDOW_LINES} lines by default (up to ${MAX_WINDOW_LINES} with \`endLine\`) and ${MAX_OUTPUT_CHARS.toLocaleString("en-US")} characters per call; lines over ${MAX_LINE_LENGTH} characters are clipped. When the output is cut, the footer gives the \`startLine\` to continue with. Only text files that Zoekt indexed can be read (binary and oversized files are not indexed).
+\`repo\` and \`path\` are exactly as search prints them (\`# <repo>\`, \`## <path>\`). \`startLine\` and \`endLine\` are 1-based and inclusive. The default is ${DEFAULT_WINDOW_LINES} lines, the maximum ${MAX_WINDOW_LINES}, and output is capped at ${MAX_OUTPUT_CHARS.toLocaleString("en-US")} characters; when cut, the footer gives the \`startLine\` to continue from.
 
-### Parameters
-- \`repo\`, \`path\`: from \`search\` results (\`# <repo>\` and \`## <path>\`) or \`list_repos\`
-- \`branch\`: optional indexed branch name. Zoekt matches it as a case-sensitive substring, so \`main\` can also match \`main-old\`; if that makes the file ambiguous, the error lists the branches
-- \`startLine\`, \`endLine\`: optional line range (1-based, inclusive)
+\`branch\` is an exact indexed branch name, or \`HEAD\` for the default branch. Omit it for the default branch; a file that differs between branches needs it.
 
-### Examples
-- \`{ "repo": "github.com/org/repo", "path": "src/main.ts" }\`
-- \`{ "repo": "github.com/org/repo", "path": "src/main.ts", "startLine": 501, "endLine": 700 }\`
-- \`{ "repo": "github.com/org/repo", "path": "README.md", "branch": "develop" }\``;
+Binary and oversized files are not indexed and cannot be read (NOT-INDEXED).`;
 
 /** `a/b`, `/a/b` and `./a/b` all mean `a/b`. */
 function cleanPath(path: string): string {
