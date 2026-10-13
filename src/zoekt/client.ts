@@ -11,6 +11,7 @@ import {
 } from "./errors.js";
 import {
 	ApiResponseSchema,
+	type ApiSearchResponse,
 	ApiSearchResponseSchema,
 	type ListReposOptions,
 	type RepoListWire,
@@ -113,15 +114,14 @@ export class ZoektClient {
 		let data: Awaited<ReturnType<ZoektClient["searchEndpoint"]>>;
 		try {
 			data = await this.searchEndpoint({ q: query, num, ctx: contextLines }, req);
+			if (!data.result) {
+				throw new ZoektProtocolError(
+					"Query was interpreted as a repository listing (it has only repo: filters); add a content term or use list_repos",
+				);
+			}
 		} catch (error) {
 			enrich?.abort();
 			throw error;
-		}
-		if (!data.result) {
-			enrich?.abort();
-			throw new ZoektProtocolError(
-				"Query was interpreted as a repository listing (it has only repo: filters); add a content term or use list_repos",
-			);
 		}
 		this.logger.debug({ query, fileCount: data.result.FileMatches.length }, "Search completed");
 		const found = await symbolsPending;
@@ -150,15 +150,8 @@ export class ZoektClient {
 					},
 				},
 			});
-			let parsed: ReturnType<typeof ApiSearchResponseSchema.safeParse> | undefined;
-			if (!raw.isHtml) {
-				try {
-					parsed = ApiSearchResponseSchema.safeParse(JSON.parse(decode(raw.bytes)));
-				} catch {
-					// not JSON
-				}
-			}
-			if (!parsed?.success) {
+			const parsed = raw.isHtml ? undefined : parseApiSearch(decode(raw.bytes));
+			if (!parsed) {
 				this.symbolsUnavailable = true;
 				this.logger.debug(
 					{ contentType: raw.contentType },
@@ -166,7 +159,7 @@ export class ZoektClient {
 				);
 				return undefined;
 			}
-			return indexSymbols(parsed.data);
+			return indexSymbols(parsed);
 		} catch (error) {
 			if (error instanceof ZoektHttpError && (error.status === 404 || error.status === 405)) {
 				this.symbolsUnavailable = true;
@@ -416,7 +409,16 @@ async function readBody(
 }
 
 /** Symbols per `(repo, file, line)`; `SymbolInfo[i]` belongs to `Ranges[i]`, duplicates dropped. */
-function indexSymbols({ Result }: ReturnType<typeof ApiSearchResponseSchema.parse>): SymbolIndex {
+function parseApiSearch(text: string): ApiSearchResponse | undefined {
+	try {
+		const parsed = ApiSearchResponseSchema.safeParse(JSON.parse(text));
+		return parsed.success ? parsed.data : undefined;
+	} catch {
+		return undefined; // not JSON
+	}
+}
+
+function indexSymbols({ Result }: ApiSearchResponse): SymbolIndex {
 	const index: SymbolIndex = new Map();
 	for (const file of Result.Files) {
 		for (const chunk of file.ChunkMatches) {

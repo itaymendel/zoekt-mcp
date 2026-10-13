@@ -117,6 +117,8 @@ export const ApiSearchResponseSchema = z.object({
 	}),
 });
 
+export type ApiSearchResponse = z.infer<typeof ApiSearchResponseSchema>;
+
 /** A ctags symbol defined on a matching line. */
 export interface SearchSymbol {
 	name: string;
