@@ -94,6 +94,18 @@ ZOEKT_URL=http://localhost:6070 bun run dev
 bun test
 ```
 
+Tests run against real Zoekt responses captured in `tests/fixtures/zoekt`. Docker is only
+needed to refresh them:
+
+```bash
+bun run fixtures:capture
+```
+
+This indexes the synthetic repositories in `tests/fixtures/zoekt/repos` with the Zoekt image
+pinned by digest in `scripts/lib/zoekt-docker.ts` and rewrites `tests/fixtures/zoekt/cases`
+and `MANIFEST.json`. To bump Zoekt, change the digest (`ZOEKT_IMAGE`), re-run the command and
+review the diff.
+
 ## License
 
 MIT

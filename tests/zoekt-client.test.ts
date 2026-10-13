@@ -1,49 +1,35 @@
 import { describe, expect, test } from "bun:test";
 import { createLogger } from "../src/logger.js";
 import { ZoektClient } from "../src/zoekt/client.js";
+import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
 
 const mockLogger = createLogger("error");
 
-function createMockFetch(): typeof fetch {
-	return async function mockFetch(input: RequestInfo | URL): Promise<Response> {
-		const url = input instanceof Request ? input.url : String(input);
-
-		if (url.includes("/search")) {
-			const searchResponse = await Bun.file("tests/fixtures/search-response.json").text();
-			return new Response(searchResponse, { headers: { "Content-Type": "application/json" } });
-		}
-
-		if (url.includes("/print")) {
-			return new Response("const x = 1;\nconst y = 2;\n", {
-				headers: { "Content-Type": "text/plain" },
-			});
-		}
-
-		return new Response("Not Found", { status: 404 });
-	} as typeof fetch;
-}
-
 function createClient(baseUrl = "http://localhost:6070") {
-	return new ZoektClient({
-		baseUrl,
-		timeoutMs: 5000,
-		logger: mockLogger,
-		fetch: createMockFetch(),
+	const fetch = mockZoektFetch({
+		"/search": "search-multi-fragment",
+		"/print": "print-ok",
 	});
+	const client = new ZoektClient({ baseUrl, timeoutMs: 5000, logger: mockLogger, fetch });
+	return { client, fetch };
 }
 
 describe("ZoektClient", () => {
 	test("should search with query", async () => {
-		const client = createClient();
+		const { client, fetch } = createClient();
 		const result = await client.search({ query: "handleRequest" });
 
-		expect(result.result.FileMatches).toBeDefined();
 		expect(result.result.FileMatches?.length).toBe(2);
-		expect(result.result.FileMatches?.[0].Repo).toBe("github.com/example/repo");
+		expect(result.result.FileMatches?.map((m) => m.Repo).sort()).toEqual([
+			"example.test/alpha",
+			"example.test/beta",
+		]);
+		expect(fetch.requests[0].searchParams.get("q")).toBe("handleRequest");
+		expect(fetch.requests[0].searchParams.get("format")).toBe("json");
 	});
 
 	test("should search with options", async () => {
-		const client = createClient();
+		const { client, fetch } = createClient();
 		const result = await client.search({
 			query: "handleRequest",
 			num: 10,
@@ -51,26 +37,29 @@ describe("ZoektClient", () => {
 		});
 
 		expect(result.result.FileMatches).toBeDefined();
+		expect(fetch.requests[0].searchParams.get("num")).toBe("10");
+		expect(fetch.requests[0].searchParams.get("ctx")).toBe("5");
 	});
 
 	test("should get file content", async () => {
-		const client = createClient();
-		const content = await client.getFileContent("github.com/example/repo", "src/main.ts");
+		const { client, fetch } = createClient();
+		const content = await client.getFileContent("example.test/alpha", "docs/notes.txt", "main");
 
-		expect(content).toBe("const x = 1;\nconst y = 2;\n");
+		expect(content).toBe(loadCase("print-ok").response.bodyText as string);
+		expect(fetch.requests[0].searchParams.get("r")).toBe("example.test/alpha");
+		expect(fetch.requests[0].searchParams.get("f")).toBe("docs/notes.txt");
+		expect(fetch.requests[0].searchParams.get("b")).toBe("main");
+		expect(fetch.requests[0].searchParams.get("format")).toBe("raw");
 	});
 
-	test("should list repositories", async () => {
-		const client = createClient();
-		const result = await client.listRepositories();
-
-		expect(result.result.FileMatches).toBeDefined();
-	});
+	// Reworked in PR-4 (list_repos moves to `r:` queries and the `{repos}` envelope).
+	test.todo("should list repositories");
 
 	test("should strip trailing slash from base URL", async () => {
-		const client = createClient("http://localhost:6070/");
+		const { client, fetch } = createClient("http://localhost:6070/");
 		const result = await client.search({ query: "test" });
 
 		expect(result.result.FileMatches).toBeDefined();
+		expect(fetch.requests[0].href.startsWith("http://localhost:6070/search?")).toBe(true);
 	});
 });
