@@ -208,3 +208,23 @@ export interface RepoInfo {
 	indexedAt?: string;
 	metadata?: Record<string, string>;
 }
+
+/** Canonical shape of a `read_file` answer: a bounded, line-numbered window of one file. */
+export interface FileContent {
+	repo: string;
+	path: string;
+	branch?: string;
+	/** First line returned (1-based); equals the requested start. */
+	startLine: number;
+	/** Last line actually returned; `startLine - 1` when no line is returned. */
+	endLine: number;
+	/** Lines in the file; a lower bound when the fetch was cut at the byte cap. */
+	totalLines: number;
+	totalLinesIsLowerBound: boolean;
+	/** Returned lines as `N:text` rows joined by newlines (CRLF stripped, long lines clipped). */
+	content: string;
+	truncated: boolean;
+	truncationReason?: "window" | "chars" | "fetchCap";
+	/** Where to continue when the window was cut and more lines are readable. */
+	nextStartLine?: number;
+}

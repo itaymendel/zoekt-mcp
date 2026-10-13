@@ -82,15 +82,9 @@ export function redactUrl(url: string): string {
 	return out.replace(/(^|\/\/)(?!\*{3}[:@])[^/@\s]+@/, "$1***@");
 }
 
-export function formatFileContentAsText(
-	repository: string,
-	filePath: string,
-	content: string,
-	branch?: string,
-): string {
-	const lineCount = content.split("\n").length;
-	const basePath = `${repository}/${filePath}`;
-	const location = branch ? `${basePath} (branch: ${branch})` : basePath;
+/** `# <repo>`: the first line of search and read_file output. */
+export const repoHeading = (repo: string) => `# ${repo}`;
 
-	return `File: ${location}\nLines: ${lineCount}\n\n${content}`;
-}
+/** `## <path>` plus an optional parenthesised or bracketed suffix, two spaces after the path. */
+export const pathHeading = (path: string, suffix?: string) =>
+	suffix ? `## ${path}  ${suffix}` : `## ${path}`;

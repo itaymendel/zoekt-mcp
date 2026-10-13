@@ -58,7 +58,7 @@ CLI flags take precedence over environment variables. Empty values count as unse
 
 - **`search`** - Search code with [Zoekt query syntax](https://github.com/sourcegraph/zoekt/blob/main/doc/query_syntax.md)
 - **`list_repos`** - List indexed repositories
-- **`file_content`** - Get file contents from a repository
+- **`read_file`** - Read a file from a repository as numbered lines (`repo`, `path`, optional `branch`, `startLine`, `endLine`; at most 500 lines by default, 2000 maximum)
 
 ## Claude Desktop
 

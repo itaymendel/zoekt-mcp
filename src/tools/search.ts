@@ -82,7 +82,7 @@ export const searchDescription = `Search code using Zoekt.
 - \`sym:handleRequest lang:typescript\` - TypeScript function named handleRequest
 
 ## Output format
-Results are grouped as \`# <repo>\` then \`## <path>\` (pass both to file_content). Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Branches are listed only when they differ between files. A footer after \`---\` gives the totals, or says what was truncated (maxFiles, maxMatchesPerFile, output size).`;
+Results are grouped as \`# <repo>\` then \`## <path>\` (pass them as \`repo\` and \`path\` to read_file). Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Branches are listed only when they differ between files. A footer after \`---\` gives the totals, or says what was truncated (maxFiles, maxMatchesPerFile, output size).`;
 
 export async function executeSearch(
 	client: ZoektClient,

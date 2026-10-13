@@ -172,17 +172,6 @@ export class ZoektClient {
 		return { bytes: raw.bytes, truncated: raw.truncated };
 	}
 
-	/** Thin text wrapper over `print` until branch-aware reads land. */
-	async getFileContent(
-		repository: string,
-		filePath: string,
-		branch?: string,
-		req: RequestOptions = {},
-	): Promise<string> {
-		const { bytes } = await this.print(repository, filePath, branch, {}, req);
-		return decode(bytes);
-	}
-
 	private async searchEndpoint(
 		params: Record<string, string | number | undefined>,
 		req: RequestOptions,
