@@ -16,6 +16,8 @@ export const DUMMY_ZOEKT_URL = "http://127.0.0.1:9";
 
 let child;
 let stderr = "";
+let globalTimer;
+let exitExpected = false;
 
 export function fail(message) {
 	console.error(`FAIL ${message}`);
@@ -35,21 +37,33 @@ export function spawnServer(command, args, { stdin = "pipe", stdout = "pipe" } =
 		stderr += chunk;
 	});
 	child.on("error", (error) => abort(`failed to spawn: ${error.message}`));
-	setTimeout(() => abort(`timed out after ${GLOBAL_TIMEOUT_MS} ms`), GLOBAL_TIMEOUT_MS).unref();
+	globalTimer = setTimeout(
+		() => abort(`timed out after ${GLOBAL_TIMEOUT_MS} ms`),
+		GLOBAL_TIMEOUT_MS,
+	);
 	const exited = new Promise((resolve) =>
-		child.on("exit", (code, signal) => resolve({ code, signal })),
+		child.on("exit", (code, signal) => {
+			if (!exitExpected) abort(`server exited early (code ${code}, signal ${signal})`);
+			resolve({ code, signal });
+		}),
 	);
 	return { child, exited };
 }
 
-/** Waits for `exited`, failing if it takes longer than timeoutMs or the exit code is not 0. */
-export async function expectCleanExit(exited, timeoutMs, trigger) {
+/**
+ * Runs `trigger` (which should make the server exit), then waits for `exited`, failing if it takes
+ * longer than timeoutMs or the exit code is not 0. Clears the global timeout on success.
+ */
+export async function expectCleanExit(exited, timeoutMs, label, trigger) {
+	exitExpected = true;
 	const timer = setTimeout(
-		() => abort(`server did not exit within ${timeoutMs} ms of ${trigger}`),
+		() => abort(`server did not exit within ${timeoutMs} ms of ${label}`),
 		timeoutMs,
 	);
+	trigger();
 	const { code, signal } = await exited;
 	clearTimeout(timer);
+	clearTimeout(globalTimer);
 	if (code !== 0) fail(`server exited with code ${code} signal ${signal}`);
 }
 

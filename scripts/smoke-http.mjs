@@ -112,8 +112,7 @@ assertTools(tools);
 const removed = await fetch(`${base}/sse`);
 if (removed.status !== 410) abort(`/sse returned ${removed.status}, expected 410`);
 
-child.kill("SIGTERM");
-await expectCleanExit(exited, EXIT_TIMEOUT_MS, "SIGTERM");
+await expectCleanExit(exited, EXIT_TIMEOUT_MS, "SIGTERM", () => child.kill("SIGTERM"));
 
 console.log(`OK node ${process.version} http tools=${tools.map((t) => t.name).join(",")}`);
 process.exit(0);

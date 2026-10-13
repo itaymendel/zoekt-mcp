@@ -103,8 +103,7 @@ async function main() {
 	const tools = list.result?.tools ?? [];
 	assertTools(tools);
 
-	child.stdin.end();
-	await expectCleanExit(exited, EXIT_TIMEOUT_MS, "stdin close");
+	await expectCleanExit(exited, EXIT_TIMEOUT_MS, "stdin close", () => child.stdin.end());
 
 	console.log(`OK node ${process.version} tools=${tools.map((t) => t.name).join(",")}`);
 }

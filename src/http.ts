@@ -24,7 +24,12 @@ export interface HttpServer {
 
 type Route = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
 
-function sendJson(res: ServerResponse, status: number, body: unknown, headers = {}): void {
+function sendJson(
+	res: ServerResponse,
+	status: number,
+	body: unknown,
+	headers: Record<string, string> = {},
+): void {
 	res.writeHead(status, { "Content-Type": "application/json", ...headers });
 	res.end(JSON.stringify(body));
 }
@@ -45,15 +50,15 @@ export function createHttpServer({
 			error: "HTTP+SSE was removed in 1.0.0; use Streamable HTTP at POST /mcp",
 		});
 
+	// Process liveness only; never touches Zoekt.
+	const healthz: Route = (req, res) =>
+		req.method === "GET" || req.method === "HEAD"
+			? sendJson(res, 200, { status: "ok", name: pkg.name, version: pkg.version })
+			: sendJson(res, 405, { error: "Method Not Allowed" }, { Allow: "GET, HEAD" });
+
 	const routes = new Map<string, Route>([
-		["/mcp", (req, res) => mcp(req, res)],
-		[
-			"/healthz",
-			(req, res) =>
-				req.method === "GET" || req.method === "HEAD"
-					? sendJson(res, 200, { status: "ok", name: pkg.name, version: pkg.version })
-					: sendJson(res, 405, { error: "Method Not Allowed" }, { Allow: "GET, HEAD" }),
-		],
+		["/mcp", mcp],
+		["/healthz", healthz],
 		["/sse", removedSse],
 		["/messages", removedSse],
 	]);
