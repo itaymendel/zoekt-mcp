@@ -137,6 +137,7 @@ export async function executeReadFile(
 		}
 	}
 
+	// Zoekt /print has no range support, so every page re-fetches the file (up to MAX_FETCH_BYTES).
 	let printed: Awaited<ReturnType<ZoektClient["print"]>>;
 	try {
 		printed = await client.print(repo, path, branch, { maxBytes: MAX_FETCH_BYTES }, req);

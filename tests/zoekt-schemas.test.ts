@@ -118,6 +118,10 @@ describe("query helpers", () => {
 		expect(repoListQuery("")).toBe('r:"."');
 		expect(repoListQuery("api")).toBe('r:"(?i)api"');
 		expect(repoListQuery("(?-i)Api")).toBe('r:"(?-i)Api"');
+		expect(repoListQuery("(?:Foo|bar)")).toBe('r:"(?i)(?:Foo|bar)"');
+		expect(repoListQuery("(?i)foo")).toBe('r:"(?i)foo"');
+		expect(repoListQuery("(?i:foo)")).toBe('r:"(?i:foo)"');
+		expect(repoListQuery("(?P<n>foo)")).toBe('r:"(?i)(?P<n>foo)"');
 		expect(repoListQuery("^github\\.com/")).toBe('r:"(?i)^github\\\\.com/"');
 		expect(repoListQuery('a"b')).toBe('r:"(?i)a\\"b"');
 	});

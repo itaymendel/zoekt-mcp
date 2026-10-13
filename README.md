@@ -105,7 +105,7 @@ Examples: `handleRequest\( lang:go -f:_test`, `sym:Server f:\.ts$`, `type:file f
 
 ### Output budgets
 
-`search` output is bounded by `maxFiles`, `maxMatchesPerFile` and a budget of about 20,000 characters (the first file is always shown). A footer after `---` says exactly what was left out and why. `read_file` returns at most 500 lines by default (2000 with `endLine`) and 40,000 characters; when it stops early, the footer names the `startLine` to continue with. Files Zoekt did not index (binary or oversized) cannot be read and fail with a `NOT-INDEXED` error.
+`search` output is bounded by `maxFiles`, `maxMatchesPerFile` and a budget of about 20,000 characters (the first file is always shown). A footer after `---` says exactly what was left out and why. `read_file` returns at most 500 lines by default (2000 with `endLine`) and 40,000 characters; when it stops early, the footer names the `startLine` to continue with. Zoekt cannot serve a line range, so each page re-fetches the file (up to 8 MiB); lines beyond that are unreadable. Files Zoekt did not index (binary or oversized) cannot be read and fail with a `NOT-INDEXED` error.
 
 ## Security
 

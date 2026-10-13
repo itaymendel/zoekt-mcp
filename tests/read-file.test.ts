@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { MAX_FETCH_BYTES } from "../src/file-format.js";
+import {
+	buildFileContent,
+	formatFileContent,
+	MAX_FETCH_BYTES,
+	resolveRange,
+} from "../src/file-format.js";
 import { exactRepoAtom } from "../src/zoekt/query.js";
 import { expectGolden } from "./helpers/golden.js";
 import { connectTestClient, resultText, type TestMcp } from "./helpers/mcp.js";
@@ -134,6 +139,16 @@ describe("read_file output", () => {
 
 		expect(result.isError).toBeFalsy();
 		expect(text).toContain("startLine=10 is past the end of the file (3 lines).");
+	});
+
+	test("past the lines readable under the fetch cap", () => {
+		const bytes = new TextEncoder().encode("a\nb\nc\npartial");
+		const file = buildFileContent(bytes, true, { repo: ALPHA, path: "a.ts" }, resolveRange(10));
+		const text = formatFileContent(file);
+
+		expect(file.totalLines).toBe(3);
+		expect(text).toContain("beyond the 8 MiB read limit; only the first 3 lines are readable.");
+		expect(text).not.toContain("past the end");
 	});
 
 	test("empty file", async () => {

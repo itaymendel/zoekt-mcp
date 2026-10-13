@@ -107,9 +107,11 @@ export function formatFileContent(file: FileContent, { clamped = false } = {}): 
 
 function footer(file: FileContent, count: string, atLeast: string): string {
 	if (file.lines.length === 0) {
-		return file.totalLines === 0
-			? "The file is empty."
-			: `startLine=${file.startLine} is past the end of the file (${count}).`;
+		if (file.totalLines === 0) return "The file is empty.";
+		if (file.totalLinesIsLowerBound) {
+			return `startLine=${file.startLine} is beyond the ${MAX_FETCH_BYTES / (1024 * 1024)} MiB read limit; only the first ${file.totalLines} lines are readable.`;
+		}
+		return `startLine=${file.startLine} is past the end of the file (${count}).`;
 	}
 	const shown = `lines ${file.startLine}-${file.endLine} of ${atLeast}${file.totalLines}`;
 	switch (file.truncationReason) {
