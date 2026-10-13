@@ -44,7 +44,7 @@ export type MockZoektFetch = typeof fetch & { requests: URL[] };
 /** A fetch replacement serving fixtures by pathname. Records every request; unknown paths throw. */
 export function mockZoektFetch(routes: ZoektRoutes): MockZoektFetch {
 	const requests: URL[] = [];
-	const mock = async (input: RequestInfo | URL): Promise<Response> => {
+	const mock = async (input: string | URL | Request): Promise<Response> => {
 		const url = new URL(input instanceof Request ? input.url : String(input));
 		requests.push(url);
 		const route = routes[url.pathname];

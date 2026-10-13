@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import pkg from "../package.json";
 import type { Logger } from "./logger.js";
 import {
@@ -20,11 +20,11 @@ import {
 	searchSchema,
 } from "./tools/search.js";
 import { getErrorMessage } from "./utils.js";
-import { ZoektClient } from "./zoekt/client.js";
+import type { ZoektClient } from "./zoekt/client.js";
 
-export interface CreateServerOptions {
-	zoektUrl: string;
-	zoektTimeoutMs: number;
+/** Dependencies shared by every server instance; built once at startup. */
+export interface ServerDeps {
+	client: ZoektClient;
 	logger: Logger;
 }
 
@@ -34,7 +34,8 @@ function createToolHandler<I>(
 	execute: (input: I) => Promise<string>,
 ) {
 	// The SDK validates, strips unknown keys and applies defaults before invoking the handler.
-	return async (input: I) => {
+	// `_ctx` is unused for now; ctx.mcpReq.signal is the hook for request cancellation.
+	return async (input: I, _ctx: ServerContext) => {
 		try {
 			logger.debug({ tool: toolName, input }, `Executing ${toolName}`);
 			const result = await execute(input);
@@ -50,13 +51,8 @@ function createToolHandler<I>(
 	};
 }
 
-export function createMcpServer({
-	zoektUrl,
-	zoektTimeoutMs,
-	logger,
-}: CreateServerOptions): McpServer {
-	const zoektClient = new ZoektClient({ baseUrl: zoektUrl, timeoutMs: zoektTimeoutMs, logger });
-
+/** Pure: builds a fresh McpServer around the given dependencies and holds no other state. */
+export function createMcpServer({ client: zoektClient, logger }: ServerDeps): McpServer {
 	const server = new McpServer({
 		name: pkg.name,
 		version: pkg.version,
@@ -64,13 +60,13 @@ export function createMcpServer({
 
 	server.registerTool(
 		"search",
-		{ description: searchDescription, inputSchema: searchSchema.shape },
+		{ description: searchDescription, inputSchema: searchSchema },
 		createToolHandler(logger, "search", (input: SearchInput) => executeSearch(zoektClient, input)),
 	);
 
 	server.registerTool(
 		"list_repos",
-		{ description: listReposDescription, inputSchema: listReposSchema.shape },
+		{ description: listReposDescription, inputSchema: listReposSchema },
 		createToolHandler(logger, "list_repos", (input: ListReposInput) =>
 			executeListRepos(zoektClient, input),
 		),
@@ -78,11 +74,16 @@ export function createMcpServer({
 
 	server.registerTool(
 		"file_content",
-		{ description: fileContentDescription, inputSchema: fileContentSchema.shape },
+		{ description: fileContentDescription, inputSchema: fileContentSchema },
 		createToolHandler(logger, "file_content", (input: FileContentInput) =>
 			executeFileContent(zoektClient, input),
 		),
 	);
 
 	return server;
+}
+
+/** A factory for per-request servers; the Zoekt client is shared, not rebuilt. */
+export function createServerFactory(deps: ServerDeps): () => McpServer {
+	return () => createMcpServer(deps);
 }

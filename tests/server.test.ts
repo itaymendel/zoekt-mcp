@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import pino from "pino";
 import { createMcpServer } from "../src/server.js";
+import { ZoektClient } from "../src/zoekt/client.js";
+
+const logger = pino({ level: "silent" });
+const deps = () => ({
+	client: new ZoektClient({ baseUrl: "http://zoekt.test", timeoutMs: 5000, logger }),
+	logger,
+});
 
 const originalFetch = globalThis.fetch;
 let requestedUrls: string[] = [];
@@ -17,11 +23,7 @@ beforeEach(async () => {
 		});
 	}) as typeof fetch;
 
-	const server = createMcpServer({
-		zoektUrl: "http://zoekt.test",
-		zoektTimeoutMs: 5000,
-		logger: pino({ level: "silent" }),
-	});
+	const server = createMcpServer(deps());
 	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 	client = new Client({ name: "test-client", version: "0.0.0" });
 	await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -81,6 +83,17 @@ describe("tool calls", () => {
 		});
 
 		expect(result.isError).toBe(true);
+		expect(requestedUrls).toHaveLength(0);
+	});
+});
+
+describe("createMcpServer", () => {
+	test("createMcpServer is a pure factory", () => {
+		const shared = deps();
+		const a = createMcpServer(shared);
+		const b = createMcpServer(shared);
+
+		expect(a).not.toBe(b);
 		expect(requestedUrls).toHaveLength(0);
 	});
 });
