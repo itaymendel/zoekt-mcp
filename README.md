@@ -20,7 +20,7 @@ An [MCP](https://modelcontextprotocol.io) server that gives AI agents fast code 
    docker run -d --name zoekt -p 6070:6070 -v zoekt-index:/data/index ghcr.io/sourcegraph/zoekt
    ```
 
-   The repository is searchable as `demo`. Zoekt builds a symbol index with ctags by default, which `sym:` queries need.
+   The repository is named after its mount directory, so it is searchable as `demo` (change `/repos/demo` to rename it). Zoekt builds a symbol index with ctags by default, which `sym:` queries need.
 
 2. Check that the server starts (it speaks MCP on stdin/stdout, so this prints the version and exits):
 
