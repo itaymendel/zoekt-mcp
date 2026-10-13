@@ -78,9 +78,31 @@ export function createHttpServer({
 	logger,
 }: HttpServerOptions): {
 	start: () => Promise<void>;
+	stop: () => Promise<void>;
 } {
 	const sessions = new Map<string, SessionEntry>();
-	let httpServer: Server;
+	let httpServer: Server | undefined;
+
+	const onSignal = (): void => {
+		void stop();
+	};
+
+	async function stop(): Promise<void> {
+		process.off("SIGINT", onSignal);
+		process.off("SIGTERM", onSignal);
+		clearInterval(cleanupInterval);
+		const server = httpServer;
+		if (!server) return;
+		httpServer = undefined;
+
+		logger.info("Shutting down HTTP server");
+		for (const [sessionId, entry] of sessions) {
+			closeServer(entry.server, sessionId, logger);
+		}
+		await new Promise<void>((resolve) => {
+			server.close(() => resolve());
+		});
+	}
 
 	const cleanupInterval = setInterval(() => {
 		const now = Date.now();
@@ -137,31 +159,24 @@ export function createHttpServer({
 	return {
 		start: async () => {
 			return new Promise((resolve, reject) => {
-				httpServer = createServer(handleRequest);
+				const server = createServer(handleRequest);
+				httpServer = server;
 
-				httpServer.on("error", (error) => {
+				server.on("error", (error) => {
 					logger.error({ error: getErrorMessage(error) }, "HTTP server error");
 					reject(error);
 				});
 
-				httpServer.listen(port, host, () => {
+				server.listen(port, host, () => {
 					logger.info({ host, port, url: `http://${host}:${port}` }, "HTTP server started");
 					resolve();
 				});
 
-				process.on("SIGINT", () => shutdown());
-				process.on("SIGTERM", () => shutdown());
-
-				function shutdown(): void {
-					logger.info("Shutting down HTTP server");
-					clearInterval(cleanupInterval);
-					for (const [sessionId, entry] of sessions) {
-						closeServer(entry.server, sessionId, logger);
-					}
-					httpServer.close();
-				}
+				process.on("SIGINT", onSignal);
+				process.on("SIGTERM", onSignal);
 			});
 		},
+		stop,
 	};
 }
 
