@@ -20,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** `Host` and `Origin` validation on `/mcp` is always on (403); hostnames are matched without ports. Request bodies over 1 MiB get 413 (`MCP_MAX_BODY_BYTES`). `Access-Control-Allow-Origin` is only sent for origins listed in `MCP_ALLOWED_ORIGINS`.
 - Empty or whitespace-only environment variables are treated as unset.
 - Configuration and CLI usage errors (including unknown options) print a readable message to stderr and exit 2 (was a JSON log line and exit 1).
-
 - **BREAKING:** Node.js >= 22 is required.
 - Migrated to MCP TypeScript SDK v2; stdio is served via `serveStdio` (speaks 2025-11-25 and 2026-07-28).
 - **BREAKING:** HTTP is now stateless Streamable HTTP at `POST /mcp`. `GET /sse` and `POST /messages` are removed (410 Gone); `/health` and `/` are removed, use `/healthz`; the CORS wildcard is removed. SSE-only clients need a bridge (e.g. `mcp-remote`) or stdio.

@@ -152,6 +152,17 @@ describe("HTTP security keys", () => {
 		]);
 	});
 
+	test("MCP_ALLOWED_HOSTS rejects entries with a port or an unbracketed IPv6 address", () => {
+		for (const bad of ["foo:80", "::1", "a.example,b.example:8443", "https://a.example"]) {
+			const issues = issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: bad }));
+			expect(issues).toHaveLength(1);
+			expect(issues[0]?.env).toBe("MCP_ALLOWED_HOSTS");
+			expect(issues[0]?.message).toContain("without ports");
+		}
+		const ok = loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: "a.example,[::1],*" });
+		expect(ok.mcpAllowedHosts).toEqual(["a.example", "[::1]", "*"]);
+	});
+
 	test("accepts the shutdown timeout bound 0", () => {
 		expect(loadConfig({}, { ...URL_ENV, MCP_SHUTDOWN_TIMEOUT_MS: "0" }).mcpShutdownTimeoutMs).toBe(
 			0,

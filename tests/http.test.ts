@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { request as nodeRequest } from "node:http";
 import { connect } from "node:net";
 import { Writable } from "node:stream";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -9,6 +8,7 @@ import { createLogger } from "../src/logger.js";
 import { createServerFactory } from "../src/server.js";
 import { startFakeZoekt } from "./helpers/fake-zoekt.js";
 import {
+	rawRequest,
 	startTestServer,
 	type TestServer,
 	type TestServerOptions,
@@ -182,35 +182,6 @@ describe("lifecycle", () => {
 });
 
 const TOKEN = "0123456789abcdef-secret";
-
-/** fetch cannot override Host; node:http can. Resolves status, headers and body text. */
-function rawRequest(
-	server: TestServer,
-	options: { path?: string; method?: string; headers?: Record<string, string>; body?: string },
-) {
-	return new Promise<{ status: number; text: string }>((resolve, reject) => {
-		const req = nodeRequest(
-			{
-				host: "127.0.0.1",
-				port: server.port,
-				path: options.path ?? "/mcp",
-				method: options.method ?? "POST",
-				headers: options.headers,
-				agent: false,
-			},
-			(res) => {
-				let text = "";
-				res.setEncoding("utf8");
-				res.on("data", (chunk) => {
-					text += chunk;
-				});
-				res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
-			},
-		);
-		req.on("error", reject);
-		req.end(options.body);
-	});
-}
 
 describe("bind address", () => {
 	test("binds 127.0.0.1 by default", async () => {
@@ -454,10 +425,7 @@ describe("graceful shutdown", () => {
 			const pending = client
 				.callTool({ name: "search", arguments: { query: "x" } })
 				.catch(() => "aborted");
-			for (let i = 0; i < 100 && zoekt.requests.length === 0; i++) {
-				await new Promise((resolve) => setTimeout(resolve, 20));
-			}
-			expect(zoekt.requests).toContain("/search");
+			expect(await zoekt.nextRequest()).toBe("/search");
 
 			const started = performance.now();
 			await server.close();
@@ -478,7 +446,8 @@ describe("graceful shutdown", () => {
 		socket.write(
 			'POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 500\r\n\r\n{"jsonrpc"',
 		);
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		// A round trip on another connection: the server has read the partial request by now.
+		await fetch(`${server.baseUrl}/healthz`);
 
 		const started = performance.now();
 		const { forced } = await server.close();

@@ -4,7 +4,7 @@ import type { LogLevel } from "./config.js";
 export type Logger = pino.Logger;
 
 /** Never let credentials reach a log line, even if a request object is logged later. */
-export const LOG_REDACT = {
+const LOG_REDACT = {
 	paths: ["req.headers.authorization", "headers.authorization", "authorization", "token"],
 	censor: "[redacted]",
 };

@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 
-const LogLevelSchema = z.enum(["debug", "info", "warn", "error"]);
-const TransportSchema = z.enum(["http", "stdio"]);
+const LogLevelSchema = z.enum(["debug", "info", "warn", "error"], {
+	error: "must be one of: debug, info, warn, error",
+});
+const TransportSchema = z.enum(["http", "stdio"], { error: 'must be "stdio" or "http"' });
 
 const MIN_TOKEN_LENGTH = 16;
 
@@ -22,38 +24,42 @@ const boolString = (message: string) =>
 		.pipe(z.enum(["true", "false"], { error: message }))
 		.transform((value) => value === "true");
 
-const csv = (value: string): string[] =>
-	value
-		.split(",")
-		.map((item) => item.trim())
-		.filter(Boolean);
+/** Comma-separated list of `item`s; blanks are dropped. */
+const csvList = <T extends z.ZodType<unknown, string>>(item: T) =>
+	z
+		.string()
+		.transform((value) =>
+			value
+				.split(",")
+				.map((entry) => entry.trim())
+				.filter(Boolean),
+		)
+		.pipe(z.array(item));
 
-const HostsSchema = z
-	.string()
-	.transform(csv)
-	.pipe(
-		z
-			.array(z.string().regex(/^[^\s/]+$/))
-			.transform((hosts) => hosts.map((host) => host.toLowerCase())),
-	);
+// Bare hostnames only: ports are never pinned, and IPv6 must be bracketed ([::1]).
+const HOSTS_MESSAGE =
+	"must be comma-separated hostnames without ports (IPv6 in brackets, e.g. [::1]), or *";
+const HostsSchema = csvList(
+	z
+		.string()
+		.regex(/^([^\s/:[\]]+|\[[0-9a-f:.]+\])$/i, HOSTS_MESSAGE)
+		.transform((host) => host.toLowerCase()),
+);
 
-const OriginsSchema = z
-	.string()
-	.transform(csv)
-	.pipe(
-		z.array(
-			z.string().transform((value, ctx) => {
-				try {
-					const url = new URL(value);
-					if (url.protocol === "http:" || url.protocol === "https:") return url.origin;
-				} catch {
-					// falls through to the issue below
-				}
-				ctx.addIssue({ code: "custom", message: "invalid origin" });
-				return z.NEVER;
-			}),
-		),
-	);
+const ORIGINS_MESSAGE =
+	"must be a comma-separated list of http(s) origins, e.g. https://app.example.com";
+const OriginsSchema = csvList(
+	z.string().transform((value, ctx) => {
+		try {
+			const url = new URL(value);
+			if (url.protocol === "http:" || url.protocol === "https:") return url.origin;
+		} catch {
+			// falls through to the issue below
+		}
+		ctx.addIssue({ code: "custom", message: ORIGINS_MESSAGE });
+		return z.NEVER;
+	}),
+);
 
 const ConfigSchema = z.object({
 	zoektUrl: z.url({
@@ -87,17 +93,13 @@ const ConfigSchema = z.object({
 	).default(10000),
 });
 
-// Friendly messages that depend on the field rather than the zod issue kind.
-const FIELD_MESSAGES: Record<string, string> = {
-	mcpTransport: 'must be "stdio" or "http"',
-	logLevel: "must be one of: debug, info, warn, error",
-	mcpAllowedHosts: "must be a comma-separated list of hostnames (or *)",
-	mcpAllowedOrigins:
-		"must be a comma-separated list of http(s) origins, e.g. https://app.example.com",
-};
+type RawKey = keyof z.input<typeof ConfigSchema>;
 
-/** Where each config key comes from; the inline stand-in for an option registry. */
-const SOURCES: Record<string, { flag?: string; env: string }> = {
+/**
+ * Where each config key comes from; the inline stand-in for an option registry. Keys with a
+ * `flag` also read the CLI value of the same name; the rest are env-only.
+ */
+const SOURCES: Record<RawKey, { flag?: string; env: string }> = {
 	zoektUrl: { flag: "--url", env: "ZOEKT_URL" },
 	mcpTransport: { flag: "--transport", env: "MCP_TRANSPORT" },
 	mcpPort: { flag: "--port", env: "MCP_PORT" },
@@ -164,25 +166,27 @@ function clean(value: string | undefined): string | undefined {
 	return trimmed ? trimmed : undefined;
 }
 
+/** Listening on a non-loopback address with no bearer token. */
+export function isExposedWithoutAuth(config: {
+	mcpTransport: Transport;
+	mcpHost: string;
+	mcpAuthToken?: string;
+}): boolean {
+	return config.mcpTransport === "http" && !isLoopbackHost(config.mcpHost) && !config.mcpAuthToken;
+}
+
 export function loadConfig(
 	cliArgs: CliArgs = {},
 	env: Record<string, string | undefined> = process.env,
 ): Config {
 	// CLI args take precedence over env vars; blank values count as unset.
-	const get = (cli: string | undefined, key: string) => clean(cli) ?? clean(env[key]);
-	const rawConfig = {
-		zoektUrl: get(cliArgs.zoektUrl, "ZOEKT_URL"),
-		mcpPort: get(cliArgs.mcpPort, "MCP_PORT"),
-		mcpHost: get(cliArgs.mcpHost, "MCP_HOST"),
-		mcpTransport: get(cliArgs.mcpTransport, "MCP_TRANSPORT"),
-		logLevel: get(cliArgs.logLevel, "LOG_LEVEL"),
-		zoektTimeoutMs: get(cliArgs.zoektTimeoutMs, "ZOEKT_TIMEOUT_MS"),
-		mcpAllowedHosts: clean(env.MCP_ALLOWED_HOSTS),
-		mcpAllowedOrigins: clean(env.MCP_ALLOWED_ORIGINS),
-		mcpAllowUnauthenticated: clean(env.MCP_ALLOW_UNAUTHENTICATED),
-		mcpMaxBodyBytes: clean(env.MCP_MAX_BODY_BYTES),
-		mcpShutdownTimeoutMs: clean(env.MCP_SHUTDOWN_TIMEOUT_MS),
-	};
+	const rawConfig = Object.fromEntries(
+		(Object.keys(SOURCES) as RawKey[]).map((key) => {
+			const { flag, env: envName } = SOURCES[key];
+			const cli = flag ? cliArgs[key as keyof CliArgs] : undefined;
+			return [key, clean(cli) ?? clean(env[envName])];
+		}),
+	) as Record<RawKey, string | undefined>;
 
 	const issues: ConfigIssue[] = [];
 	const result = ConfigSchema.safeParse(rawConfig);
@@ -190,16 +194,11 @@ export function loadConfig(
 	if (!result.success) {
 		const reported = new Set<string>();
 		for (const issue of result.error.issues) {
-			const key = String(issue.path[0]);
+			const key = issue.path[0] as RawKey;
 			if (reported.has(key)) continue;
 			reported.add(key);
-			const received = rawConfig[key as keyof typeof rawConfig];
-			const missing = key === "zoektUrl" && received === undefined;
-			issues.push({
-				...(SOURCES[key] ?? { env: key }),
-				message: missing ? "is required" : (FIELD_MESSAGES[key] ?? issue.message),
-				received: missing ? undefined : received,
-			});
+			const received = rawConfig[key];
+			issues.push({ ...SOURCES[key], message: issue.message, received });
 		}
 	}
 
@@ -207,12 +206,7 @@ export function loadConfig(
 	if (!result.success || issues.length > 0) throw new ConfigError(issues);
 
 	const config: Config = { ...result.data, mcpAuthToken: token };
-	if (
-		config.mcpTransport === "http" &&
-		!isLoopbackHost(config.mcpHost) &&
-		!token &&
-		!config.mcpAllowUnauthenticated
-	) {
+	if (isExposedWithoutAuth(config) && !config.mcpAllowUnauthenticated) {
 		throw new ConfigError([
 			{
 				...SOURCES.mcpHost,

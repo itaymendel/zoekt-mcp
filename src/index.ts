@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import pkg from "../package.json";
 import type { Config } from "./config.js";
-import { ConfigError, formatConfigError, isLoopbackHost, loadConfig } from "./config.js";
+import { ConfigError, formatConfigError, isExposedWithoutAuth, loadConfig } from "./config.js";
 import { createHttpServer } from "./http.js";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
@@ -39,7 +39,7 @@ OPTIONS:
 EXAMPLES:
   zoekt-mcp --url http://localhost:6070
   zoekt-mcp --url http://localhost:6070 --transport stdio
-  zoekt-mcp --url http://localhost:6070 --port 8080 --log-level debug
+  zoekt-mcp --url http://localhost:6070 --transport http --port 8080 --log-level debug
 
 ENVIRONMENT VARIABLES:
   ZOEKT_URL                   Zoekt webserver URL (http:// or https://)
@@ -60,6 +60,9 @@ EXIT CODES:
   0 ok, 1 runtime failure, 2 usage or configuration error
 `);
 }
+
+/** A bad command line; reported on stderr with exit code 2. */
+class UsageError extends Error {}
 
 function parseCliArgs(): Record<string, string | undefined> {
 	try {
@@ -96,13 +99,8 @@ function parseCliArgs(): Record<string, string | undefined> {
 			zoektTimeoutMs: values.timeout,
 		};
 	} catch (error) {
-		if (
-			error instanceof Error &&
-			String((error as NodeJS.ErrnoException).code).startsWith("ERR_PARSE_ARGS")
-		) {
-			console.error(`Error: ${error.message}`);
-			console.error('Run "zoekt-mcp --help" for usage information.');
-			process.exit(2);
+		if (String((error as NodeJS.ErrnoException).code).startsWith("ERR_PARSE_ARGS")) {
+			throw new UsageError((error as Error).message);
 		}
 		throw error;
 	}
@@ -135,6 +133,11 @@ async function main(): Promise<void> {
 			await startHttpTransport(createServer, config, logger);
 		}
 	} catch (error) {
+		if (error instanceof UsageError) {
+			console.error(`Error: ${error.message}`);
+			console.error('Run "zoekt-mcp --help" for usage information.');
+			process.exit(2);
+		}
 		if (error instanceof ConfigError) {
 			console.error(formatConfigError(error));
 			process.exit(2);
@@ -145,7 +148,7 @@ async function main(): Promise<void> {
 }
 
 /** One handler for both signals: exit 0 when clean, 1 when forced or failed; a second signal exits 1. */
-function onShutdown(close: () => Promise<{ forced: boolean } | undefined>, logger: Logger): void {
+function onShutdown(close: () => Promise<{ forced: boolean }>, logger: Logger): void {
 	let shuttingDown = false;
 	const handle = (signal: string) => {
 		if (shuttingDown) {
@@ -156,8 +159,8 @@ function onShutdown(close: () => Promise<{ forced: boolean } | undefined>, logge
 		logger.info(`Received ${signal}, shutting down`);
 		close().then(
 			(result) => {
-				if (result?.forced) logger.warn("forced shutdown");
-				process.exit(result?.forced ? 1 : 0);
+				if (result.forced) logger.warn("forced shutdown");
+				process.exit(result.forced ? 1 : 0);
 			},
 			(error) => {
 				logger.error({ error: getErrorMessage(error) }, "Shutdown failed");
@@ -177,7 +180,7 @@ async function startStdioTransport(createServer: () => McpServer, logger: Logger
 	});
 	onShutdown(async () => {
 		await handle.close();
-		return undefined;
+		return { forced: false };
 	}, logger);
 
 	logger.info("Connected via stdio");
@@ -203,7 +206,8 @@ async function startHttpTransport(
 		maxBodyBytes: config.mcpMaxBodyBytes,
 	});
 
-	if (!config.mcpAuthToken && !isLoopbackHost(config.mcpHost)) {
+	// loadConfig already refused this unless MCP_ALLOW_UNAUTHENTICATED=true.
+	if (isExposedWithoutAuth(config) && config.mcpAllowUnauthenticated) {
 		logger.warn(
 			"MCP_ALLOW_UNAUTHENTICATED=true: serving /mcp on a non-loopback address without authentication",
 		);

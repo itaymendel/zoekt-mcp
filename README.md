@@ -31,7 +31,7 @@ OPTIONS:
 EXAMPLES:
   zoekt-mcp --url http://localhost:6070
   zoekt-mcp --url http://localhost:6070 --transport stdio
-  zoekt-mcp --url http://localhost:6070 --port 8080 --log-level debug
+  zoekt-mcp --url http://localhost:6070 --transport http --port 8080 --log-level debug
 ```
 
 ## Environment Variables
@@ -42,7 +42,7 @@ EXAMPLES:
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `MCP_PORT` | `3000` | HTTP server port |
 | `MCP_HOST` | `127.0.0.1` | HTTP server host; a non-loopback host requires a token (see below) |
-| `MCP_ALLOWED_HOSTS` | (none) | Extra `Host` hostnames, comma-separated (port-agnostic; `*` disables the check) |
+| `MCP_ALLOWED_HOSTS` | (none) | Extra `Host` hostnames, comma-separated, without ports (IPv6 in brackets; `*` disables the check) |
 | `MCP_ALLOWED_ORIGINS` | (none) | Extra allowed browser origins, comma-separated (e.g. `https://app.example.com`); also granted CORS |
 | `MCP_AUTH_TOKEN` | (none) | Require `Authorization: Bearer <token>` on `/mcp` (at least 16 characters) |
 | `MCP_AUTH_TOKEN_FILE` | (none) | Read the bearer token from a file (mutually exclusive with `MCP_AUTH_TOKEN`) |

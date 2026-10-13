@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import type { AddressInfo, Socket } from "node:net";
+import type { AddressInfo } from "node:net";
+import { trackSockets } from "../../src/http.js";
 import { loadCase } from "./zoekt-fixtures.js";
 
 export interface FakeZoekt {
@@ -7,6 +8,8 @@ export interface FakeZoekt {
 	url: string;
 	/** Pathnames requested so far. */
 	requests: string[];
+	/** Resolves with the next request path not yet returned by this method (in arrival order). */
+	nextRequest(): Promise<string>;
 	close(): Promise<void>;
 }
 
@@ -18,9 +21,12 @@ export async function startFakeZoekt(
 	options: { routes?: Record<string, string>; hang?: boolean } = {},
 ): Promise<FakeZoekt> {
 	const requests: string[] = [];
+	const waiters: Array<() => void> = [];
+	let consumed = 0;
 	const server = createServer((req, res) => {
 		const { pathname } = new URL(req.url ?? "/", "http://placeholder");
 		requests.push(pathname);
+		for (const wake of waiters.splice(0)) wake();
 		if (options.hang) return;
 		const route = options.routes?.[pathname];
 		if (route === undefined) return void res.writeHead(404).end();
@@ -29,21 +35,22 @@ export async function startFakeZoekt(
 		res.writeHead(response.status, { "Content-Type": response.contentType });
 		res.end(body ?? "");
 	});
-	const sockets = new Set<Socket>();
-	server.on("connection", (socket) => {
-		sockets.add(socket);
-		socket.once("close", () => sockets.delete(socket));
-	});
+	const connections = trackSockets(server);
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	const { port } = server.address() as AddressInfo;
 	return {
 		url: `http://127.0.0.1:${port}`,
 		requests,
+		async nextRequest() {
+			while (consumed >= requests.length) {
+				await new Promise<void>((resolve) => waiters.push(resolve));
+			}
+			return requests[consumed++] as string;
+		},
 		close: () =>
 			new Promise<void>((resolve) => {
 				server.close(() => resolve());
-				server.closeAllConnections();
-				for (const socket of sockets) socket.destroy();
+				connections.destroyAll();
 			}),
 	};
 }

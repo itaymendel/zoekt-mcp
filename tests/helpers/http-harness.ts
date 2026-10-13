@@ -1,6 +1,6 @@
+import { request as nodeRequest } from "node:http";
 import { createHttpServer, type HttpServerOptions } from "../../src/http.js";
 import { createServerFactory } from "../../src/server.js";
-import { ZoektClient } from "../../src/zoekt/client.js";
 import { testDeps } from "./test-deps.js";
 import { type MockZoektFetch, mockZoektFetch } from "./zoekt-fixtures.js";
 
@@ -33,17 +33,11 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 		"/search": "search-multi-fragment",
 		"/print": "print-ok",
 	});
-	const base = testDeps(zoektFetch);
-	const deps = zoektBaseUrl
-		? {
-				...base,
-				client: new ZoektClient({
-					baseUrl: zoektBaseUrl,
-					timeoutMs: zoektTimeoutMs ?? 5000,
-					logger: base.logger,
-				}),
-			}
-		: base;
+	// A real upstream (fake-zoekt) uses the global fetch; otherwise fixtures answer in-process.
+	const deps = testDeps(zoektBaseUrl ? undefined : zoektFetch, {
+		baseUrl: zoektBaseUrl,
+		timeoutMs: zoektTimeoutMs,
+	});
 	const http = createHttpServer({
 		createServer: createServerFactory(deps),
 		host,
@@ -63,4 +57,33 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 			return closing;
 		},
 	};
+}
+
+/** fetch cannot override Host; node:http can. Resolves status, headers and body text. */
+export function rawRequest(
+	server: { port: number },
+	options: { path?: string; method?: string; headers?: Record<string, string>; body?: string },
+) {
+	return new Promise<{ status: number; text: string }>((resolve, reject) => {
+		const req = nodeRequest(
+			{
+				host: "127.0.0.1",
+				port: server.port,
+				path: options.path ?? "/mcp",
+				method: options.method ?? "POST",
+				headers: options.headers,
+				agent: false,
+			},
+			(res) => {
+				let text = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk) => {
+					text += chunk;
+				});
+				res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+			},
+		);
+		req.on("error", reject);
+		req.end(options.body);
+	});
 }
