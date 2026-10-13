@@ -305,6 +305,35 @@ describe("renderSearchText", () => {
 		expect(text).toContain("## src/handler.go  (branches: main, main-old, feature)");
 	});
 
+	test("omits branch list when uniform across shown files after the budget cut", () => {
+		const branches = ["main", "dev"];
+		const response = stub({
+			FileMatches: [
+				zfile("r", "a.go", [matchAt(1, "x".repeat(100))], branches),
+				zfile("r", "b.go", [matchAt(1, "x".repeat(100))], branches),
+				zfile("r", "c.go", [matchAt(1, "x".repeat(100))], ["main"]),
+			],
+		});
+		const { model, text } = render(response, { maxChars: 1000, contextLines: 0 });
+
+		expect(model.files.map((f) => f.path)).toEqual(["a.go", "b.go"]);
+		expect(model.truncation.filesOmittedByBudget).toBe(1);
+		expect(text).not.toContain("(branches");
+	});
+
+	test("filename matches are not undercounted when Stats are missing", () => {
+		const response = stub({
+			FileMatches: [
+				zfile("r", "a", [{ LineNum: 0, Fragments: [{ Pre: "", Match: "a", Post: "" }] }]),
+				zfile("r", "b", [matchAt(4), matchAt(9)]),
+			],
+		});
+
+		expect(render(response, { contextLines: 0 }).text).toMatch(
+			/\n---\n2 files, 2 matching lines, 1 filename match\.$/,
+		);
+	});
+
 	test("omits branch list when uniform across results", () => {
 		const text = render(loadSearchResponse("search-context")).text;
 

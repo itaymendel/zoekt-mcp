@@ -111,7 +111,11 @@ export function normalizeSearch(response: SearchResponse, opts: NormalizeOptions
 	const { maxFiles = Number.POSITIVE_INFINITY, maxMatchesPerFile = Number.POSITIVE_INFINITY } =
 		opts;
 	const files = FileMatches.slice(0, maxFiles).map((f) => normalizeFile(f, opts));
-	const matchLines = files.reduce((n, f) => n + f.lines.filter((l) => l.match).length, 0);
+	// Without Stats, count filename matches too: the footer subtracts them again.
+	const matchLines = files.reduce(
+		(n, f) => n + f.lines.filter((l) => l.match).length + (f.filenameMatch ? 1 : 0),
+		0,
+	);
 	return {
 		query: opts.query,
 		files,
@@ -221,16 +225,16 @@ export function capSearch(model: SearchModel, options: CapOptions = {}): SearchM
 
 	const budget = Math.max(maxChars - FOOTER_RESERVE, 0);
 	const files: SearchFile[] = [];
-	const blocks: string[] = [];
+	let blocks: string[] = [];
 	const repos = new Set<string>();
 	let used = 0;
 	let firstClipped = false;
+	const firstLimit = Math.max(budget, MIN_FIRST_FILE_CHARS);
 	for (const file of ranked) {
 		let block = renderFile(file, withBranches);
 		if (files.length === 0) {
-			const limit = Math.max(budget, MIN_FIRST_FILE_CHARS);
-			firstClipped = block.length > limit;
-			block = hardClip(block, limit);
+			firstClipped = block.length > firstLimit;
+			block = hardClip(block, firstLimit);
 		}
 		const cost = blockCost(block, repos.has(file.repo) ? undefined : file.repo);
 		if (files.length > 0 && used + cost > budget) break;
@@ -240,6 +244,15 @@ export function capSearch(model: SearchModel, options: CapOptions = {}): SearchM
 		used += cost;
 	}
 	const filesOmittedByBudget = ranked.length - files.length;
+
+	// "Uniform" means uniform across what is printed; dropping suffixes only shrinks blocks.
+	const shownBranches = showBranches(files);
+	if (shownBranches !== withBranches) {
+		blocks = files.map((f) => renderFile(f, shownBranches));
+		const first = blocks[0] ?? "";
+		firstClipped = first.length > firstLimit;
+		blocks[0] = hardClip(first, firstLimit);
+	}
 
 	const hiddenMatchLines = files.reduce((n, f) => n + f.hiddenMatchLines, 0);
 	const reasons: SearchModel["truncation"]["reasons"] = [];
