@@ -8,7 +8,7 @@ import { ConfigError, formatConfigError, isExposedWithoutAuth, loadConfig } from
 import { createHttpServer } from "./http.js";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
-import { createServerFactory } from "./server.js";
+import { cacheScopeFor, createServerFactory } from "./server.js";
 import { getErrorMessage, redactUrl } from "./utils.js";
 import { ZoektClient } from "./zoekt/client.js";
 
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
 		const createServer = createServerFactory({
 			client,
 			logger,
-			authRequired: config.mcpAuthToken !== undefined,
+			cacheScope: cacheScopeFor(config),
 		});
 
 		if (config.mcpTransport === "stdio") {

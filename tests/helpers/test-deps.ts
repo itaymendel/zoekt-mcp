@@ -14,5 +14,6 @@ export function testDeps(
 	return {
 		client: new ZoektClient({ baseUrl, timeoutMs, logger, fetch }),
 		logger,
+		cacheScope: "public",
 	};
 }

@@ -22,7 +22,7 @@ First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@nex
   | `{"repository":"o/r","filePath":"a.ts","branch":"dev"}` | `{"repo":"o/r","path":"a.ts","branch":"dev"}` |
   | whole file, unnumbered | `{"repo":"o/r","path":"a.ts","startLine":501,"endLine":700}` |
 - **`search` output is rewritten.** Results are grouped as `# <repo>` then `## <path>` (was `## <repo>/<path>`); rows are `N:text` for matches and `N-text` for context (was `> N: text`); `--` separates non-adjacent groups; indentation is kept and a line with several matches prints once instead of as several garbled rows. `Language:`, `Branches: HEAD` and the `Stats:` line are removed; branches appear only when they differ between files, and the footer after `---` gives file and match totals or says what was truncated. Migration: parse rows with `^(\d+)([:-])`; pass `# repo` and `## path` as `repo` and `path` to `read_file`.
-- **`search` parameter `limit` is replaced by `maxFiles`** (1-100, default 20; `limit` was default 30). New `maxMatchesPerFile` (1-50, default 5); `contextLines` now defaults to 2 (was 3). `limit` is no longer accepted (it is ignored). `query` must not be empty.
+- **`search` parameter `limit` is replaced by `maxFiles`** (1-100, default 20; `limit` was default 30). New `maxMatchesPerFile` (1-50, default 5); `contextLines` now defaults to 2 (was 3). `limit` is no longer a parameter; unknown keys are ignored. `query` must not be empty.
 - **`list_repos` is reworked.** `filter` is an unanchored, case-insensitive regex on the repository name (prefix with `(?-i)` for case-sensitive); new `limit` (1-200, default 50) and `offset` parameters; output is one line per repository (`name  branch@sha7, ...  N files  size  indexed date`) sorted by name, with a paging footer.
 - **HTTP is now stateless Streamable HTTP at `POST /mcp`.** `GET /sse` and `POST /messages` are removed (410 Gone, with a hint to use `/mcp`); `/health` and `/` are removed, use `/healthz`; the CORS wildcard is removed. SSE-only clients need a bridge (e.g. `mcp-remote`) or stdio.
 - **The transport is never auto-detected.** The default is stdio unless `--transport http` / `MCP_TRANSPORT=http`. If you relied on a TTY selecting HTTP, add `--transport http`.
@@ -70,4 +70,3 @@ First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@nex
 
 [Unreleased]: https://github.com/itaymendel/zoekt-mcp/compare/v1.0.0-alpha.0...HEAD
 [1.0.0-alpha.0]: https://github.com/itaymendel/zoekt-mcp/compare/v0.1.0...v1.0.0-alpha.0
-[0.1.0]: https://github.com/itaymendel/zoekt-mcp/releases/tag/v0.1.0

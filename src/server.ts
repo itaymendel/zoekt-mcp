@@ -31,9 +31,27 @@ import type { ZoektClient } from "./zoekt/client.js";
 export interface ServerDeps {
 	client: ZoektClient;
 	logger: Logger;
-	/** True when `/mcp` requires a bearer token; marks cacheable results `private` instead of `public`. */
-	authRequired?: boolean;
+	/** Required so a forgotten value cannot silently mean `public`; see `cacheScopeFor`. */
+	cacheScope: CacheScope;
 }
+
+export type CacheScope = "public" | "private";
+
+/** Tool listings are `private` when a bearer token guards the server, else `public`. */
+export function cacheScopeFor(config: { mcpAuthToken?: string }): CacheScope {
+	return config.mcpAuthToken === undefined ? "public" : "private";
+}
+
+const cacheHints = (cacheScope: CacheScope) => {
+	const hint = { ttlMs: TOOLS_CACHE_TTL_MS, cacheScope };
+	return { "tools/list": hint, "server/discover": hint };
+};
+
+/** Cache hints only reach 2026-era clients; `tools/list` never varies per caller. */
+const CACHE_HINTS: Record<CacheScope, ReturnType<typeof cacheHints>> = {
+	public: cacheHints("public"),
+	private: cacheHints("private"),
+};
 
 function createToolHandler<I>(
 	logger: Logger,
@@ -64,18 +82,13 @@ function createToolHandler<I>(
 export function createMcpServer({
 	client: zoektClient,
 	logger,
-	authRequired = false,
+	cacheScope,
 }: ServerDeps): McpServer {
-	// Cache hints only reach 2026-era clients; `tools/list` never varies per caller.
-	const hint = {
-		ttlMs: TOOLS_CACHE_TTL_MS,
-		cacheScope: authRequired ? "private" : "public",
-	} as const;
 	const server = new McpServer(
 		{ name: pkg.name, version: pkg.version, title: "Zoekt Code Search" },
 		{
 			instructions: SERVER_INSTRUCTIONS,
-			cacheHints: { "tools/list": hint, "server/discover": hint },
+			cacheHints: CACHE_HINTS[cacheScope],
 		},
 	);
 

@@ -1,4 +1,8 @@
-import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import {
+	Client,
+	InMemoryTransport,
+	StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import { createMcpServer, type ServerDeps } from "../../src/server.js";
 
 export interface TestMcp {
@@ -25,4 +29,17 @@ export async function connectTestClient(deps: ServerDeps): Promise<TestMcp> {
 export function resultText(result: { content?: unknown }): string {
 	const first = (result.content as Array<{ type: string; text?: string }>)[0];
 	return first?.text ?? "";
+}
+
+/** A client pinned to the 2026-07-28 era, connected to a running test HTTP server's `/mcp`. */
+export async function connectModernClient(
+	server: { baseUrl: string },
+	{ token }: { token?: string } = {},
+): Promise<Client> {
+	const client = makeTestClient({ versionNegotiation: { mode: { pin: "2026-07-28" } } });
+	const requestInit = token ? { headers: { Authorization: `Bearer ${token}` } } : undefined;
+	await client.connect(
+		new StreamableHTTPClientTransport(new URL(`${server.baseUrl}/mcp`), { requestInit }),
+	);
+	return client;
 }

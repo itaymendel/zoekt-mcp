@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { ENV_KEYS } from "../src/config.js";
 import { searchDescription } from "../src/tools/search.js";
+import { run } from "./helpers/cli.js";
 import { expectGolden } from "./helpers/golden.js";
+import { SEARCH_SYNTAX_NEEDLES } from "./helpers/needles.js";
 
 const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
@@ -15,16 +17,7 @@ function section(heading: string): string {
 	return next === -1 ? rest : rest.slice(0, next);
 }
 
-async function help(): Promise<{ stdout: string; exitCode: number }> {
-	const proc = Bun.spawn(["bun", "src/index.ts", "--help"], {
-		stdin: "ignore",
-		stdout: "pipe",
-		stderr: "pipe",
-		env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
-	});
-	const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-	return { stdout, exitCode };
-}
+const help = () => run(["--help"]);
 
 describe("README configuration table", () => {
 	test("lists exactly the environment variables src/config.ts reads", () => {
@@ -70,7 +63,7 @@ describe("--help", () => {
 describe("README cheat sheet", () => {
 	test("teaches what the search description teaches", () => {
 		const cheatSheet = section("Tools");
-		for (const needle of ["sym:", "ctags", "type:file", "branch:HEAD", "r:(?i)", "\\\\.", '\\"']) {
+		for (const needle of SEARCH_SYNTAX_NEEDLES) {
 			expect(searchDescription, needle).toContain(needle);
 			expect(cheatSheet, needle).toContain(needle);
 		}

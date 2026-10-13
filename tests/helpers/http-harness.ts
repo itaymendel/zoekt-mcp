@@ -1,6 +1,6 @@
 import { type IncomingMessage, request as nodeRequest } from "node:http";
 import { createHttpServer, type HttpServerOptions } from "../../src/http.js";
-import { createServerFactory } from "../../src/server.js";
+import { cacheScopeFor, createServerFactory } from "../../src/server.js";
 import { testDeps } from "./test-deps.js";
 import { type MockZoektFetch, mockZoektFetch } from "./zoekt-fixtures.js";
 
@@ -43,7 +43,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 	const http = createHttpServer({
 		createServer: createServerFactory({
 			...deps,
-			authRequired: httpOptions.authToken !== undefined,
+			cacheScope: cacheScopeFor({ mcpAuthToken: httpOptions.authToken }),
 		}),
 		host,
 		port: 0,

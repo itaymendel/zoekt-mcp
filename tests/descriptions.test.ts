@@ -1,8 +1,9 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { Tool } from "@modelcontextprotocol/client";
 import { SERVER_INSTRUCTIONS } from "../src/instructions.js";
 import { startTestServer, type TestServer } from "./helpers/http-harness.js";
-import { connectTestClient, makeTestClient } from "./helpers/mcp.js";
+import { connectModernClient, connectTestClient } from "./helpers/mcp.js";
+import { SEARCH_SYNTAX_NEEDLES } from "./helpers/needles.js";
 import { testDeps } from "./helpers/test-deps.js";
 
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
@@ -32,9 +33,8 @@ describe("instructions", () => {
 	test("are delivered in the 2026 server/discover result", async () => {
 		const server = await startTestServer();
 		servers.push(server);
-		const client = makeTestClient({ versionNegotiation: { mode: { pin: "2026-07-28" } } });
+		const client = await connectModernClient(server);
 		try {
-			await client.connect(new StreamableHTTPClientTransport(new URL(`${server.baseUrl}/mcp`)));
 			expect(client.getProtocolEra()).toBe("modern");
 			expect(client.getDiscoverResult()?.instructions).toBe(SERVER_INSTRUCTIONS);
 		} finally {
@@ -43,23 +43,22 @@ describe("instructions", () => {
 	});
 });
 
-interface ListedTool {
-	name: string;
-	description?: string;
-	inputSchema: { properties?: Record<string, { description?: string }> };
-}
+/** Parameter schemas as `tools/list` serializes them (JSON Schema with descriptions). */
+type ParamSchemas = Record<string, { description?: string }>;
 
-let tools: ListedTool[] = [];
+const props = (t: Tool) => (t.inputSchema.properties ?? {}) as ParamSchemas;
+
+let tools: Tool[] = [];
 
 beforeAll(async () => {
 	const { client, close } = await connectTestClient(testDeps());
-	tools = (await client.listTools()).tools as ListedTool[];
+	tools = (await client.listTools()).tools;
 	await close();
 });
 
-const tool = (name: string) => tools.find((t) => t.name === name) as ListedTool;
+const tool = (name: string) => tools.find((t) => t.name === name) as Tool;
 const description = (name: string) => tool(name).description ?? "";
-const paramNames = (name: string) => Object.keys(tool(name).inputSchema.properties ?? {});
+const paramNames = (name: string) => Object.keys(props(tool(name)));
 const backticked = (text: string) => [...text.matchAll(/`([^`\n]+)`/g)].map((m) => m[1] as string);
 
 describe("word ceilings", () => {
@@ -73,7 +72,7 @@ describe("word ceilings", () => {
 
 	test("every parameter description has at most 20 words", () => {
 		for (const t of tools) {
-			for (const [param, schema] of Object.entries(t.inputSchema.properties ?? {})) {
+			for (const [param, schema] of Object.entries(props(t))) {
 				const text = schema.description ?? "";
 				expect(text.length, `${t.name}.${param} has a description`).toBeGreaterThan(0);
 				expect(words(text), `${t.name}.${param}`).toBeLessThanOrEqual(20);
@@ -87,10 +86,7 @@ describe("word ceilings", () => {
 			(sum, t) =>
 				sum +
 				words(t.description ?? "") +
-				Object.values(t.inputSchema.properties ?? {}).reduce(
-					(n, p) => n + words(p.description ?? ""),
-					0,
-				),
+				Object.values(props(t)).reduce((n, p) => n + words(p.description ?? ""), 0),
 			0,
 		);
 		expect(total).toBeLessThanOrEqual(690);
@@ -117,7 +113,7 @@ describe("parameter names", () => {
 		for (const t of tools) {
 			const text = [
 				t.description ?? "",
-				...Object.values(t.inputSchema.properties ?? {}).map((p) => p.description ?? ""),
+				...Object.values(props(t)).map((p) => p.description ?? ""),
 			].join("\n");
 			for (const name of backticked(text)) {
 				const tools_ = owners.get(name);
@@ -154,7 +150,7 @@ describe("search description claims", () => {
 	});
 
 	test("teaches symbols, file-name search, the default branch, case-insensitive repos and quoting", () => {
-		for (const needle of ["sym:", "ctags", "type:file", "branch:HEAD", "(?i)", "\\\\.", '\\"']) {
+		for (const needle of SEARCH_SYNTAX_NEEDLES) {
 			expect(text(), needle).toContain(needle);
 		}
 	});
