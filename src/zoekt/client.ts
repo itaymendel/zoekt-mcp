@@ -75,8 +75,14 @@ export class ZoektClient {
 		// Node's fetch throws (echoing the password) for URLs with userinfo, so move it to a header.
 		const url = new URL(options.baseUrl);
 		if (url.username || url.password) {
-			const user = decodeURIComponent(url.username);
-			const pass = decodeURIComponent(url.password);
+			let user: string;
+			let pass: string;
+			try {
+				user = decodeURIComponent(url.username);
+				pass = decodeURIComponent(url.password);
+			} catch {
+				throw new ZoektError("ZOEKT_URL credentials are not valid percent-encoding");
+			}
 			this.authorization = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
 			url.username = "";
 			url.password = "";

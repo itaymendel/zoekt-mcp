@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { redactUrl } from "./utils.js";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error"], {
 	error: "must be one of: debug, info, warn, error",
@@ -61,14 +62,30 @@ const OriginsSchema = csvList(
 	}),
 );
 
+/** Userinfo is percent-decoded into a Basic auth header, so a malformed `%` sequence is a config error. */
+function hasValidCredentialEncoding(value: string): boolean {
+	try {
+		const { username, password } = new URL(value);
+		decodeURIComponent(username);
+		decodeURIComponent(password);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const ConfigSchema = z.object({
-	zoektUrl: z.url({
-		protocol: /^https?$/,
-		error: (issue) =>
-			issue.input === undefined
-				? "is required"
-				: "must be an http:// or https:// URL, e.g. http://localhost:6070",
-	}),
+	zoektUrl: z
+		.url({
+			protocol: /^https?$/,
+			error: (issue) =>
+				issue.input === undefined
+					? "is required"
+					: "must be an http:// or https:// URL, e.g. http://localhost:6070",
+		})
+		.refine(hasValidCredentialEncoding, {
+			message: "credentials are not valid percent-encoding",
+		}),
 	mcpPort: intString(1, 65535, "must be an integer between 1 and 65535").default(3000),
 	mcpHost: z.string().default("127.0.0.1"),
 	mcpTransport: TransportSchema.default("stdio"),
@@ -197,7 +214,8 @@ export function loadConfig(
 			const key = issue.path[0] as RawKey;
 			if (reported.has(key)) continue;
 			reported.add(key);
-			const received = rawConfig[key];
+			const value = rawConfig[key];
+			const received = key === "zoektUrl" && value !== undefined ? redactUrl(value) : value;
 			issues.push({ ...SOURCES[key], message: issue.message, received });
 		}
 	}

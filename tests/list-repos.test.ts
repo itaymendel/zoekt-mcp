@@ -304,6 +304,13 @@ describe("redactUrl", () => {
 		expect(redactUrl("http://token@zoekt:6070/")).toBe("http://***@zoekt:6070");
 	});
 
+	test("hides userinfo in non-http and unparsable inputs", () => {
+		expect(redactUrl("ftp://u:s3cret@x")).not.toContain("s3cret");
+		expect(redactUrl("u:s3cret@")).toBe("***@");
+		expect(redactUrl("//u:s3cret@host")).toBe("//***@host");
+		expect(redactUrl("not a url")).toBe("not a url");
+	});
+
 	test("leaves credential-free URLs alone", () => {
 		expect(redactUrl("http://zoekt:6070")).toBe("http://zoekt:6070");
 	});

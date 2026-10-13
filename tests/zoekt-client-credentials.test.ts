@@ -39,6 +39,17 @@ describe("credentials in the base URL", () => {
 		);
 	});
 
+	test("a malformed percent sequence fails clearly without echoing the value", () => {
+		let error: Error | undefined;
+		try {
+			testDeps(undefined, { baseUrl: "http://u:s3%ZZcret@zoekt.test" });
+		} catch (e) {
+			error = e as Error;
+		}
+
+		expect(error?.message).toBe("ZOEKT_URL credentials are not valid percent-encoding");
+	});
+
 	test("no header is sent without credentials", async () => {
 		const { seen, fetch } = capture();
 		await testDeps(fetch).client.search({ query: "x" });

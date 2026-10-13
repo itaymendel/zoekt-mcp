@@ -101,14 +101,17 @@ export function formatBytes(bytes: number): string {
 
 /** The URL with any `user:password@` replaced by `***`, safe to log or show. */
 export function redactUrl(url: string): string {
+	let out = url;
 	try {
 		const u = new URL(url);
 		if (u.username) u.username = "***";
 		if (u.password) u.password = "***";
-		return u.href.replace(/\/$/, "");
+		out = u.href.replace(/\/$/, "");
 	} catch {
-		return url;
+		// unparsable: the pattern below still hides anything that looks like userinfo
 	}
+	// Defence for inputs URL parsing did not split (e.g. "u:secret@", "//u:secret@host").
+	return out.replace(/(^|\/\/)(?!\*{3}[:@])[^/@\s]+@/, "$1***@");
 }
 
 export function formatFileContentAsText(

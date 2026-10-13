@@ -98,6 +98,14 @@ describe("exit codes", () => {
 		expect(stderr).not.toContain("admin");
 	});
 
+	test("a rejected ZOEKT_URL with credentials never echoes the password", async () => {
+		const { stderr, exitCode } = await run([], { ZOEKT_URL: "ftp://u:s3cret@x" });
+
+		expect(exitCode).toBe(2);
+		expect(stderr).not.toContain("s3cret");
+		expect(stderr).toContain("ZOEKT_URL");
+	});
+
 	test("--help documents stdio as the default and no auto-detect", async () => {
 		const { stdout, exitCode } = await run(["--help"]);
 
