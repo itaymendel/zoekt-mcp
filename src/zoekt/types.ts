@@ -36,7 +36,7 @@ export const SearchStatsSchema = z.object({
 export const SearchResponseSchema = z.object({
 	result: z.object({
 		FileMatches: z.array(FileMatchSchema).nullable().optional(),
-		RepoURLs: z.record(z.string()).optional(),
+		RepoURLs: z.record(z.string(), z.string()).optional(),
 		Stats: SearchStatsSchema.optional(),
 		QueryStr: z.string().optional(),
 		Query: z.string().optional(),

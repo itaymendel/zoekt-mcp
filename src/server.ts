@@ -18,7 +18,7 @@ export interface CreateServerOptions {
 	logger: Logger;
 }
 
-function createToolHandler<T extends z.ZodTypeAny>(
+function createToolHandler<T extends z.ZodType>(
 	logger: Logger,
 	toolName: string,
 	schema: T,
