@@ -9,9 +9,11 @@ import {
 	normalizeSearch,
 	renderSearchText,
 } from "../src/search-format.js";
+import { executeSearch, type SearchInput, searchSchema } from "../src/tools/search.js";
 import { SearchResultSchema } from "../src/zoekt/types.js";
 import { expectGolden } from "./helpers/golden.js";
-import { loadCase } from "./helpers/zoekt-fixtures.js";
+import { testDeps } from "./helpers/test-deps.js";
+import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
 
 function fixtureResponse(name: string) {
 	const body = loadCase(name).response.body as { result: unknown };
@@ -596,5 +598,54 @@ describe("goldens", () => {
 		const { text } = render(response, { contextLines: 0, maxChars: 1500 });
 
 		expectGolden("search-truncated-budget.txt", text);
+	});
+});
+
+describe("executeSearch", () => {
+	const run = (routes: Parameters<typeof mockZoektFetch>[0], input: Partial<SearchInput> = {}) => {
+		const fetch = mockZoektFetch(routes);
+		const { client } = testDeps(fetch);
+		const parsed = searchSchema.parse({ query: "q", ...input });
+		const result = executeSearch(client, parsed, { signal: new AbortController().signal });
+		return { fetch, result };
+	};
+
+	test("sends ctx from contextLines and num = maxFiles + 1", async () => {
+		const { fetch, result } = run(
+			{ "/search": "search-context" },
+			{ query: "needle", contextLines: 2 },
+		);
+		const { text } = await result;
+
+		const params = fetch.requests[0]?.searchParams;
+		expect(params?.get("ctx")).toBe("2");
+		expect(params?.get("num")).toBe("21");
+		expect(text).toContain("2:needle one");
+	});
+
+	test("many files: shows 3 of 8 files through the whole pipeline", async () => {
+		const { text } = await run({ "/search": "search-many-files" }, { maxFiles: 3 }).result;
+
+		expect(text).toContain("showing 3 of 8 files");
+	});
+
+	test("duration is milliseconds and never printed", async () => {
+		const { result } = run({
+			"/search": () =>
+				Response.json({
+					result: { Stats: { Duration: 12_345_678, FileCount: 0, MatchCount: 0 }, FileMatches: [] },
+				}),
+		});
+		const { text, data } = await result;
+
+		expect(data?.durationMs).toBe(12);
+		expect(text).not.toMatch(/ms\)|Stats:/);
+		expect(text).toBe("No matches for `q`.");
+	});
+
+	test("the model rides along as data", async () => {
+		const { data } = await run({ "/search": "search-file-only" }).result;
+
+		expect(data?.files[0]).toMatchObject({ path: "docs/notes.txt", filenameMatch: true });
 	});
 });

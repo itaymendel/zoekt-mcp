@@ -38,7 +38,7 @@ function createToolHandler<I>(
 	return async (input: I, ctx: ServerContext) => {
 		try {
 			logger.debug({ tool: toolName, input }, `Executing ${toolName}`);
-			const result = await execute(input, { signal: ctx.mcpReq.signal });
+			const result = await execute(input, { signal: ctx.mcpReq.signal, logger });
 			const text = typeof result === "string" ? result : result.text;
 			return { content: [{ type: "text" as const, text }] };
 		} catch (error) {

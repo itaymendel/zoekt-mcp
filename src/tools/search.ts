@@ -1,18 +1,37 @@
 import { z } from "zod";
-import { formatSearchResultsAsText } from "../utils.js";
+import {
+	capSearch,
+	DEFAULT_OUTPUT_CHARS,
+	normalizeSearch,
+	renderSearchText,
+} from "../search-format.js";
 import type { ZoektClient } from "../zoekt/client.js";
-import type { ToolContext } from "./result.js";
+import type { SearchModel } from "../zoekt/types.js";
+import type { ToolContext, ToolResult } from "./result.js";
 
 export const searchSchema = z.object({
-	query: z.string().describe("Zoekt search query"),
-	limit: z.number().int().min(1).max(100).default(30).describe("Maximum number of results (1-100)"),
+	query: z.string().min(1).describe("Zoekt search query"),
+	maxFiles: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.default(20)
+		.describe("Maximum number of files to return (1-100)"),
+	maxMatchesPerFile: z
+		.number()
+		.int()
+		.min(1)
+		.max(50)
+		.default(5)
+		.describe("Maximum matching lines shown per file (1-50); context lines are not counted"),
 	contextLines: z
 		.number()
 		.int()
 		.min(0)
 		.max(10)
-		.default(3)
-		.describe("Number of context lines around matches (0-10)"),
+		.default(2)
+		.describe("Number of context lines around each match (0-10)"),
 });
 
 export type SearchInput = z.infer<typeof searchSchema>;
@@ -60,22 +79,31 @@ export const searchDescription = `Search code using Zoekt.
 - \`func.*Error lang:go\` - Go functions with "Error" in name
 - \`TODO repo:myproject -file:vendor\` - TODOs excluding vendor
 - \`import.*react file:\\.tsx$\` - React imports in TSX files
-- \`sym:handleRequest lang:typescript\` - TypeScript function named handleRequest`;
+- \`sym:handleRequest lang:typescript\` - TypeScript function named handleRequest
+
+## Output format
+Results are grouped as \`# <repo>\` then \`## <path>\` (pass both to file_content). Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Branches are listed only when they differ between files. A footer after \`---\` gives the totals, or says what was truncated (maxFiles, maxMatchesPerFile, output size).`;
 
 export async function executeSearch(
 	client: ZoektClient,
 	input: SearchInput,
 	ctx: ToolContext,
-): Promise<string> {
+	{ maxChars = DEFAULT_OUTPUT_CHARS }: { maxChars?: number } = {},
+): Promise<ToolResult<SearchModel>> {
+	const { query, maxFiles, maxMatchesPerFile, contextLines } = input;
+	// Ask for one file more than shown, so Zoekt's own cap cannot hide that there were more.
 	const response = await client.search(
-		{ query: input.query, num: input.limit, contextLines: input.contextLines },
+		{ query, num: maxFiles + 1, contextLines },
 		{ signal: ctx.signal },
 	);
 
-	const result = formatSearchResultsAsText(response);
-	const stats = response.result.Stats;
-
-	if (!stats) return result;
-
-	return `${result}\n---\nStats: ${stats.MatchCount} matches in ${stats.FileCount} files (${stats.Duration / 1000}ms)`;
+	const model = capSearch(normalizeSearch(response, { query, contextLines, maxMatchesPerFile }), {
+		maxFiles,
+		maxChars,
+	});
+	ctx.logger?.debug(
+		{ query, files: model.files.length, durationMs: model.durationMs },
+		"search finished",
+	);
+	return { text: renderSearchText(model, { maxChars, maxMatchesPerFile }), data: model };
 }
