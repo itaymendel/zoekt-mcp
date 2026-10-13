@@ -31,8 +31,11 @@ export function abort(message) {
 }
 
 /** Spawns the server, captures stderr and arms the global timeout. */
-export function spawnServer(command, args, { stdin = "pipe", stdout = "pipe" } = {}) {
-	child = spawn(command, args, { stdio: [stdin, stdout, "pipe"] });
+export function spawnServer(command, args, { stdin = "pipe", stdout = "pipe", env = {} } = {}) {
+	child = spawn(command, args, {
+		stdio: [stdin, stdout, "pipe"],
+		env: { ...process.env, ...env },
+	});
 	child.stderr.on("data", (chunk) => {
 		stderr += chunk;
 	});
@@ -42,7 +45,7 @@ export function spawnServer(command, args, { stdin = "pipe", stdout = "pipe" } =
 		GLOBAL_TIMEOUT_MS,
 	);
 	const exited = new Promise((resolve) =>
-		child.on("exit", (code, signal) => {
+		child.on("close", (code, signal) => {
 			if (!exitExpected) abort(`server exited early (code ${code}, signal ${signal})`);
 			resolve({ code, signal });
 		}),

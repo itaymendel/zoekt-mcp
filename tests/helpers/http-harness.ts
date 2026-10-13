@@ -1,4 +1,5 @@
-import { createHttpServer } from "../../src/http.js";
+import { request as nodeRequest } from "node:http";
+import { createHttpServer, type HttpServerOptions } from "../../src/http.js";
 import { createServerFactory } from "../../src/server.js";
 import { testDeps } from "./test-deps.js";
 import { type MockZoektFetch, mockZoektFetch } from "./zoekt-fixtures.js";
@@ -7,33 +8,82 @@ export interface TestServer {
 	/** e.g. http://127.0.0.1:54321 */
 	baseUrl: string;
 	port: number;
+	/** The address the socket actually bound, e.g. 127.0.0.1. */
+	host: string;
 	zoektFetch: MockZoektFetch;
-	/** Idempotent. */
-	close(): Promise<void>;
+	/** Idempotent; `forced` is true when connections had to be dropped after shutdownTimeoutMs. */
+	close(): Promise<{ forced: boolean }>;
 }
 
-/** Starts the real HTTP server on 127.0.0.1:0 backed by fixture-served Zoekt responses. */
-export async function startTestServer(): Promise<TestServer> {
+export type TestServerOptions = Partial<
+	Pick<
+		HttpServerOptions,
+		"host" | "allowedHosts" | "allowedOrigins" | "authToken" | "maxBodyBytes" | "shutdownTimeoutMs"
+	>
+> & {
+	/** Use a real upstream (e.g. fake-zoekt) instead of the fixture-served mock fetch. */
+	zoektBaseUrl?: string;
+	zoektTimeoutMs?: number;
+};
+
+/** Starts the real HTTP server on port 0 (127.0.0.1 unless `host`) backed by fixture-served Zoekt. */
+export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
+	const { zoektBaseUrl, zoektTimeoutMs, host = "127.0.0.1", ...httpOptions } = options;
 	const zoektFetch = mockZoektFetch({
 		"/search": "search-multi-fragment",
 		"/print": "print-ok",
 	});
-	const deps = testDeps(zoektFetch);
+	// A real upstream (fake-zoekt) uses the global fetch; otherwise fixtures answer in-process.
+	const deps = testDeps(zoektBaseUrl ? undefined : zoektFetch, {
+		baseUrl: zoektBaseUrl,
+		timeoutMs: zoektTimeoutMs,
+	});
 	const http = createHttpServer({
 		createServer: createServerFactory(deps),
-		host: "127.0.0.1",
+		host,
 		port: 0,
 		logger: deps.logger,
+		...httpOptions,
 	});
-	const { port } = await http.start();
-	let closing: Promise<void> | undefined;
+	const { host: boundHost, port } = await http.start();
+	let closing: Promise<{ forced: boolean }> | undefined;
 	return {
 		baseUrl: `http://127.0.0.1:${port}`,
 		port,
+		host: boundHost,
 		zoektFetch,
 		close: () => {
 			closing ??= http.close();
 			return closing;
 		},
 	};
+}
+
+/** fetch cannot override Host; node:http can. Resolves status, headers and body text. */
+export function rawRequest(
+	server: { port: number },
+	options: { path?: string; method?: string; headers?: Record<string, string>; body?: string },
+) {
+	return new Promise<{ status: number; text: string }>((resolve, reject) => {
+		const req = nodeRequest(
+			{
+				host: "127.0.0.1",
+				port: server.port,
+				path: options.path ?? "/mcp",
+				method: options.method ?? "POST",
+				headers: options.headers,
+				agent: false,
+			},
+			(res) => {
+				let text = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk) => {
+					text += chunk;
+				});
+				res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+			},
+		);
+		req.on("error", reject);
+		req.end(options.body);
+	});
 }
