@@ -11,6 +11,8 @@ export interface NormalizeOptions {
 	query: string;
 	/** Context lines to keep on each side of a match (Zoekt already limits them via `ctx`). */
 	contextLines: number;
+	/** Matching lines kept per file, in Zoekt's (score) order; context excluded. */
+	maxMatchesPerFile?: number;
 }
 
 const stripEol = (s: string) => {
@@ -40,9 +42,14 @@ function matchLine(match: Match): SearchLine {
 	return line;
 }
 
-function normalizeFile(file: FileMatch, { contextLines }: NormalizeOptions): SearchFile {
+function normalizeFile(
+	file: FileMatch,
+	{ contextLines, maxMatchesPerFile = Number.POSITIVE_INFINITY }: NormalizeOptions,
+): SearchFile {
 	const filenameMatch = file.Matches.some((m) => m.LineNum === 0);
-	const content = file.Matches.filter((m) => m.LineNum > 0);
+	const all = file.Matches.filter((m) => m.LineNum > 0);
+	// The cap applies before context is attached; Zoekt's order is score order, not line order.
+	const content = all.slice(0, maxMatchesPerFile);
 
 	const byLine = new Map<number, SearchLine>();
 	for (const m of content) byLine.set(m.LineNum, matchLine(m));
@@ -62,13 +69,19 @@ function normalizeFile(file: FileMatch, { contextLines }: NormalizeOptions): Sea
 		}
 	}
 
+	// Hidden lines that already appear as context are not hidden.
+	const kept = new Set(content.map((m) => m.LineNum));
+	const hiddenMatchLines = new Set(
+		all.filter((m) => !kept.has(m.LineNum) && !byLine.has(m.LineNum)).map((m) => m.LineNum),
+	).size;
+
 	const out: SearchFile = {
 		repo: file.Repo,
 		path: file.FileName,
 		branches: file.Branches,
 		filenameMatch,
 		lines: [...byLine.values()].sort((a, b) => a.n - b.n),
-		hiddenMatchLines: 0,
+		hiddenMatchLines,
 	};
 	if (file.Language) out.language = file.Language;
 	return out;
@@ -90,5 +103,25 @@ export function normalizeSearch(response: SearchResponse, opts: NormalizeOptions
 		truncated: false,
 		truncation: { reasons: [], moreFiles: 0, hiddenMatchLines: 0, filesOmittedByBudget: 0 },
 		durationMs: Math.round((Stats?.Duration ?? 0) / 1e6),
+	};
+}
+
+export interface CapOptions {
+	maxFiles: number;
+}
+
+/** Applies `maxFiles` and fills the truncation summary; never reports truncation that did not happen. */
+export function capSearch(model: SearchModel, { maxFiles }: CapOptions): SearchModel {
+	const files = model.files.slice(0, maxFiles);
+	const moreFiles = Math.max(0, model.totals.files - files.length);
+	const hiddenMatchLines = files.reduce((n, f) => n + f.hiddenMatchLines, 0);
+	const reasons: SearchModel["truncation"]["reasons"] = [];
+	if (moreFiles > 0) reasons.push("maxFiles");
+	if (hiddenMatchLines > 0) reasons.push("maxMatchesPerFile");
+	return {
+		...model,
+		files,
+		truncated: reasons.length > 0,
+		truncation: { reasons, moreFiles, hiddenMatchLines, filesOmittedByBudget: 0 },
 	};
 }

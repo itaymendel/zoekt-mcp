@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { normalizeSearch } from "../src/search-format.js";
+import { capSearch, normalizeSearch } from "../src/search-format.js";
 import { SearchResultSchema } from "../src/zoekt/types.js";
 import { loadCase } from "./helpers/zoekt-fixtures.js";
 
@@ -134,5 +134,93 @@ describe("normalizeSearch", () => {
 		});
 
 		expect(model.durationMs).toBe(12);
+	});
+});
+
+const matchAt = (n: number, text = `line ${n}`) => ({
+	LineNum: n,
+	Fragments: [{ Pre: "", Match: text, Post: "\n" }],
+});
+
+describe("capSearch", () => {
+	test("per-file cap keeps the first K matches in Zoekt order and displays them by line", () => {
+		const result = stub({
+			Stats: { FileCount: 1, MatchCount: 3 },
+			FileMatches: [{ FileName: "a", Repo: "r", Matches: [matchAt(90), matchAt(12), matchAt(55)] }],
+		});
+		const model = capSearch(
+			normalizeSearch(result, { query: "q", contextLines: 0, maxMatchesPerFile: 2 }),
+			{ maxFiles: 20 },
+		);
+
+		expect(model.files[0]?.lines.map((l) => l.n)).toEqual([12, 90]);
+		expect(model.files[0]?.hiddenMatchLines).toBe(1);
+		expect(model.truncation).toMatchObject({
+			reasons: ["maxMatchesPerFile"],
+			hiddenMatchLines: 1,
+			moreFiles: 0,
+		});
+	});
+
+	test("a hidden match shown as context is not counted as hidden", () => {
+		const result = stub({
+			FileMatches: [
+				{
+					FileName: "a",
+					Repo: "r",
+					Matches: [{ ...matchAt(10), After: "line 11\n" }, matchAt(11)],
+				},
+			],
+		});
+		const model = normalizeSearch(result, {
+			query: "q",
+			contextLines: 1,
+			maxMatchesPerFile: 1,
+		});
+
+		expect(model.files[0]?.hiddenMatchLines).toBe(0);
+		expect(model.files[0]?.lines.map((l) => [l.n, l.match])).toEqual([
+			[10, true],
+			[11, false],
+		]);
+	});
+
+	test("FileCount above shown files is reported exactly", () => {
+		const model = capSearch(
+			normalizeSearch(fixtureResponse("search-many-files"), { query: "q", contextLines: 0 }),
+			{ maxFiles: 3 },
+		);
+
+		expect(model.files).toHaveLength(3);
+		expect(model.totals.files).toBe(8);
+		expect(model.truncation).toMatchObject({ reasons: ["maxFiles"], moreFiles: 5 });
+	});
+
+	test("never claims truncation that did not happen", () => {
+		const model = capSearch(
+			normalizeSearch(fixtureResponse("search-context"), { query: "q", contextLines: 1 }),
+			{ maxFiles: 20 },
+		);
+
+		expect(model.truncated).toBe(false);
+		expect(model.truncation.reasons).toEqual([]);
+	});
+
+	test("maxFiles slices an over-fetched response (num = maxFiles + 1)", () => {
+		const model = capSearch(
+			normalizeSearch(fixtureResponse("search-many-files"), { query: "q", contextLines: 0 }),
+			{ maxFiles: 2 },
+		);
+
+		expect(model.files).toHaveLength(2);
+		expect(model.truncation.moreFiles).toBe(6);
+	});
+
+	test("FilesSkipped or ShardsSkipped marks the file total as a lower bound", () => {
+		for (const Stats of [{ FilesSkipped: 1 }, { ShardsSkipped: 2 }, {}]) {
+			const model = normalizeSearch(stub({ Stats }), { query: "q", contextLines: 0 });
+
+			expect(model.totals.filesIsLowerBound).toBe(Object.keys(Stats).length > 0);
+		}
 	});
 });
