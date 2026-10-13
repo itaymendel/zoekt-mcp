@@ -38,7 +38,7 @@ EXAMPLES:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZOEKT_URL` | (required) | Zoekt webserver URL (`http://` or `https://`) |
+| `ZOEKT_URL` | (required) | Zoekt webserver URL (`http://` or `https://`); `user:pass@` credentials are sent as HTTP Basic auth and redacted from logs and errors |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `MCP_PORT` | `3000` | HTTP server port |
 | `MCP_HOST` | `127.0.0.1` | HTTP server host; a non-loopback host requires a token (see below) |

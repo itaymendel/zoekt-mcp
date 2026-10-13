@@ -63,13 +63,25 @@ interface ErrorBody {
 }
 
 export class ZoektClient {
+	/** Credential-free base URL (no trailing slash). */
 	private readonly baseUrl: string;
+	/** `Basic ...` built once from userinfo in the configured URL, if any. */
+	private readonly authorization?: string;
 	private readonly timeoutMs: number;
 	private readonly logger: Logger;
 	private readonly fetchFn: typeof fetch;
 
 	constructor(options: ZoektClientOptions) {
-		this.baseUrl = options.baseUrl.replace(/\/$/, "");
+		// Node's fetch throws (echoing the password) for URLs with userinfo, so move it to a header.
+		const url = new URL(options.baseUrl);
+		if (url.username || url.password) {
+			const user = decodeURIComponent(url.username);
+			const pass = decodeURIComponent(url.password);
+			this.authorization = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
+			url.username = "";
+			url.password = "";
+		}
+		this.baseUrl = url.href.replace(/\/$/, "");
 		this.timeoutMs = options.timeoutMs;
 		this.logger = options.logger.child({ component: "zoekt-client" });
 		this.fetchFn = options.fetch ?? fetch;
@@ -222,7 +234,7 @@ export class ZoektClient {
 		let response: Response;
 		let body: { bytes: Uint8Array; truncated: boolean };
 		try {
-			response = await this.fetchFn(url, { signal, headers: { Accept: accept } });
+			response = await this.fetchFn(url, { signal, headers: this.headers(accept) });
 			body = await readBody(response, response.ok ? maxBytes : MAX_ERROR_READ_BYTES);
 		} catch (error) {
 			throw this.mapFetchError(error, req.signal);
@@ -243,6 +255,12 @@ export class ZoektClient {
 			`Zoekt /${endpoint} failed: HTTP ${response.status} ${response.statusText}${error.shown ? `: ${error.shown}` : ""}`,
 			response.status,
 		);
+	}
+
+	private headers(accept: string): Record<string, string> {
+		return this.authorization
+			? { Accept: accept, Authorization: this.authorization }
+			: { Accept: accept };
 	}
 
 	private mapFetchError(error: unknown, callerSignal?: AbortSignal): unknown {
