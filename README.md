@@ -101,6 +101,8 @@ ZOEKT_URL=http://localhost:6070 bun run dev
 bun test
 ```
 
+To verify the packed tarball (file list, install footprint, `--version`, stdio smoke), run `bun run build && bun run check:package`.
+
 To check the built bundle the way `npx` users run it (plain Node, stdio):
 
 ```bash
