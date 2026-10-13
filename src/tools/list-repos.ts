@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import { formatRepoList } from "../utils.js";
 import type { ZoektClient } from "../zoekt/client.js";
 import { repoListQuery } from "../zoekt/query.js";
@@ -28,15 +29,21 @@ export const listReposSchema = z.object({
 
 export type ListReposInput = z.infer<typeof listReposSchema>;
 
-export const listReposDescription = `List indexed repositories, one line per repository: name, branches (branch@sha), file count, size and index date.
+export const listReposMeta = {
+	title: "List indexed repositories",
+	annotations: READ_ONLY_ANNOTATIONS,
+};
 
-\`filter\` is an unanchored, case-insensitive regex on the repository name (prefix it with \`(?-i)\` for case-sensitive). Results are sorted by name; use \`limit\` and \`offset\` to page.
+export const listReposDescription = `List indexed repositories, one line each: name, branches (branch@sha), file count, size and index date. Sorted by name.
+
+\`filter\` is an unanchored regex on the repository name, case-insensitive by default (start it with \`(?-i)\` for case-sensitive). Page with \`limit\` and \`offset\`.
+
+Use the exact names as \`repo\` in read_file and as \`r:"^name$"\` in search.
 
 ### Examples
-- List all repos: \`{}\`
-- Filter by org: \`{ "filter": "^github\\\\.com/myorg/" }\`
-- Filter by name: \`{ "filter": "api" }\`
-- Next page: \`{ "limit": 50, "offset": 50 }\``;
+- \`{}\`
+- \`{ "filter": "^github\\\\.com/myorg/" }\`
+- \`{ "limit": 50, "offset": 50 }\``;
 
 export function normalizeRepoList(
 	wire: RepoListWire,

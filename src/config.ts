@@ -130,6 +130,13 @@ const SOURCES: Record<RawKey, { flag?: string; env: string }> = {
 	mcpShutdownTimeoutMs: { env: "MCP_SHUTDOWN_TIMEOUT_MS" },
 };
 
+/** Every environment variable this server reads (the README config table is tested against it). */
+export const ENV_KEYS: readonly string[] = [
+	...Object.values(SOURCES).map((source) => source.env),
+	"MCP_AUTH_TOKEN",
+	"MCP_AUTH_TOKEN_FILE",
+];
+
 export type LogLevel = z.infer<typeof LogLevelSchema>;
 export type Transport = z.infer<typeof TransportSchema>;
 export type Config = z.output<typeof ConfigSchema> & {

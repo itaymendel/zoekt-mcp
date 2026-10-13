@@ -8,7 +8,7 @@ import { ConfigError, formatConfigError, isExposedWithoutAuth, loadConfig } from
 import { createHttpServer } from "./http.js";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
-import { createServerFactory } from "./server.js";
+import { cacheScopeFor, createServerFactory } from "./server.js";
 import { getErrorMessage, redactUrl } from "./utils.js";
 import { ZoektClient } from "./zoekt/client.js";
 
@@ -19,46 +19,27 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 }
 
 function printHelp(): void {
-	console.log(`
-zoekt-mcp - MCP server for Zoekt code search
+	console.log(`zoekt-mcp - MCP server for Zoekt code search
 
-USAGE:
-  zoekt-mcp [OPTIONS]
-  npx zoekt-mcp [OPTIONS]
+Usage: zoekt-mcp [options]
 
-OPTIONS:
+Options:
   --url <url>          Zoekt webserver URL (required, or set ZOEKT_URL)
-  --transport <mode>   Transport mode: "stdio" (default) or "http"
-  --port <number>      HTTP server port (default: 3000)
-  --host <address>     HTTP server host (default: 127.0.0.1)
-  --log-level <level>  Log level: debug, info, warn, error (default: info)
-  --timeout <ms>       Zoekt request timeout in ms (default: 30000)
-  --help, -h           Show this help message
-  --version, -v        Show version
+  --transport <mode>   Transport: "stdio" (default) or "http"
+  --port <number>      HTTP port (default: 3000)
+  --host <address>     HTTP bind address (default: 127.0.0.1)
+  --log-level <level>  debug, info, warn or error (default: info)
+  --timeout <ms>       Zoekt request timeout (default: 30000)
+  -h, --help           Show this help
+  -v, --version        Show the version
 
-EXAMPLES:
-  zoekt-mcp --url http://localhost:6070
-  zoekt-mcp --url http://localhost:6070 --transport stdio
-  zoekt-mcp --url http://localhost:6070 --transport http --port 8080 --log-level debug
+Every option also has an environment variable (--url is ZOEKT_URL, and so on).
+HTTP security settings are environment-only: MCP_AUTH_TOKEN, MCP_AUTH_TOKEN_FILE,
+MCP_ALLOWED_HOSTS, MCP_ALLOWED_ORIGINS, MCP_ALLOW_UNAUTHENTICATED, MCP_MAX_BODY_BYTES
+and MCP_SHUTDOWN_TIMEOUT_MS. Exit code 2 means a usage or configuration error.
 
-ENVIRONMENT VARIABLES:
-  ZOEKT_URL                   Zoekt webserver URL (http:// or https://)
-  MCP_TRANSPORT               Transport mode (stdio or http; default stdio)
-  MCP_PORT                    HTTP server port
-  MCP_HOST                    HTTP server host (default 127.0.0.1)
-  MCP_ALLOWED_HOSTS           Extra Host header hostnames, comma-separated ("*" disables the check)
-  MCP_ALLOWED_ORIGINS         Extra allowed browser origins, comma-separated (also granted CORS)
-  MCP_AUTH_TOKEN              Require "Authorization: Bearer <token>" on /mcp (min 16 chars)
-  MCP_AUTH_TOKEN_FILE         Read the bearer token from a file (exclusive with MCP_AUTH_TOKEN)
-  MCP_ALLOW_UNAUTHENTICATED   Set to "true" to listen on a non-loopback host without a token
-  MCP_MAX_BODY_BYTES          Largest /mcp request body (default 1048576)
-  MCP_SHUTDOWN_TIMEOUT_MS     Grace period before dropping connections on shutdown (default 10000)
-  LOG_LEVEL                   Log level
-  ZOEKT_TIMEOUT_MS            Request timeout in milliseconds
-
-EXIT CODES:
-  0 ok, 1 runtime failure, 2 usage or configuration error
-`);
+Example: zoekt-mcp --url http://localhost:6070
+Docs:    https://github.com/itaymendel/zoekt-mcp#readme`);
 }
 
 /** A bad command line; reported on stderr with exit code 2. */
@@ -125,7 +106,11 @@ async function main(): Promise<void> {
 			timeoutMs: config.zoektTimeoutMs,
 			logger,
 		});
-		const createServer = createServerFactory({ client, logger });
+		const createServer = createServerFactory({
+			client,
+			logger,
+			cacheScope: cacheScopeFor(config),
+		});
 
 		if (config.mcpTransport === "stdio") {
 			await startStdioTransport(createServer, logger);

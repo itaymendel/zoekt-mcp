@@ -1,29 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { run, type Spawned, spawn } from "./helpers/cli.js";
 
-const ENTRY = "src/index.ts";
 const TOKEN = "0123456789abcdef-secret";
-
-type Spawned = ReturnType<typeof spawn>;
-
-function spawn(args: string[], env: Record<string, string> = {}) {
-	return Bun.spawn(["bun", ENTRY, ...args], {
-		stdin: "ignore",
-		stdout: "pipe",
-		stderr: "pipe",
-		// Start from a clean slate so the host's ZOEKT_URL/MCP_* never leak into a test.
-		env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...env },
-	});
-}
-
-async function run(args: string[], env: Record<string, string> = {}) {
-	const proc = spawn(args, env);
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-		proc.exited,
-	]);
-	return { stdout, stderr, exitCode };
-}
 
 async function freePort(): Promise<number> {
 	const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
@@ -106,13 +84,10 @@ describe("exit codes", () => {
 		expect(stderr).toContain("ZOEKT_URL");
 	});
 
-	test("--help documents stdio as the default and no auto-detect", async () => {
-		const { stdout, exitCode } = await run(["--help"]);
+	test("--help exits 0 (its text is covered by the golden snapshot)", async () => {
+		const { exitCode } = await run(["--help"]);
 
 		expect(exitCode).toBe(0);
-		expect(stdout).toContain('"stdio" (default)');
-		expect(stdout).not.toContain("auto-detect");
-		expect(stdout).toContain("MCP_AUTH_TOKEN");
 	});
 });
 
