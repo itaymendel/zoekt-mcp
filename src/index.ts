@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import pkg from "../package.json";
 import type { Config } from "./config.js";
-import { loadConfig } from "./config.js";
+import { ConfigError, formatConfigError, isLoopbackHost, loadConfig } from "./config.js";
 import { createHttpServer } from "./http.js";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
@@ -28,9 +28,9 @@ USAGE:
 
 OPTIONS:
   --url <url>          Zoekt webserver URL (required, or set ZOEKT_URL)
-  --transport <mode>   Transport mode: "http" or "stdio" (default: auto-detect)
+  --transport <mode>   Transport mode: "stdio" (default) or "http"
   --port <number>      HTTP server port (default: 3000)
-  --host <address>     HTTP server host (default: 0.0.0.0)
+  --host <address>     HTTP server host (default: 127.0.0.1)
   --log-level <level>  Log level: debug, info, warn, error (default: info)
   --timeout <ms>       Zoekt request timeout in ms (default: 30000)
   --help, -h           Show this help message
@@ -42,12 +42,22 @@ EXAMPLES:
   zoekt-mcp --url http://localhost:6070 --port 8080 --log-level debug
 
 ENVIRONMENT VARIABLES:
-  ZOEKT_URL          Zoekt webserver URL
-  MCP_TRANSPORT      Transport mode (http or stdio)
-  MCP_PORT           HTTP server port
-  MCP_HOST           HTTP server host
-  LOG_LEVEL          Log level
-  ZOEKT_TIMEOUT_MS   Request timeout in milliseconds
+  ZOEKT_URL                   Zoekt webserver URL (http:// or https://)
+  MCP_TRANSPORT               Transport mode (stdio or http; default stdio)
+  MCP_PORT                    HTTP server port
+  MCP_HOST                    HTTP server host (default 127.0.0.1)
+  MCP_ALLOWED_HOSTS           Extra Host header hostnames, comma-separated ("*" disables the check)
+  MCP_ALLOWED_ORIGINS         Extra allowed browser origins, comma-separated (also granted CORS)
+  MCP_AUTH_TOKEN              Require "Authorization: Bearer <token>" on /mcp (min 16 chars)
+  MCP_AUTH_TOKEN_FILE         Read the bearer token from a file (exclusive with MCP_AUTH_TOKEN)
+  MCP_ALLOW_UNAUTHENTICATED   Set to "true" to listen on a non-loopback host without a token
+  MCP_MAX_BODY_BYTES          Largest /mcp request body (default 1048576)
+  MCP_SHUTDOWN_TIMEOUT_MS     Grace period before dropping connections on shutdown (default 10000)
+  LOG_LEVEL                   Log level
+  ZOEKT_TIMEOUT_MS            Request timeout in milliseconds
+
+EXIT CODES:
+  0 ok, 1 runtime failure, 2 usage or configuration error
 `);
 }
 
@@ -86,10 +96,13 @@ function parseCliArgs(): Record<string, string | undefined> {
 			zoektTimeoutMs: values.timeout,
 		};
 	} catch (error) {
-		if (error instanceof Error && error.message.includes("Unknown option")) {
+		if (
+			error instanceof Error &&
+			String((error as NodeJS.ErrnoException).code).startsWith("ERR_PARSE_ARGS")
+		) {
 			console.error(`Error: ${error.message}`);
 			console.error('Run "zoekt-mcp --help" for usage information.');
-			process.exit(1);
+			process.exit(2);
 		}
 		throw error;
 	}
@@ -122,20 +135,38 @@ async function main(): Promise<void> {
 			await startHttpTransport(createServer, config, logger);
 		}
 	} catch (error) {
+		if (error instanceof ConfigError) {
+			console.error(formatConfigError(error));
+			process.exit(2);
+		}
 		logger.error({ error: getErrorMessage(error) }, "Fatal error");
 		process.exit(1);
 	}
 }
 
-function onShutdown(close: () => Promise<void>, logger: Logger): void {
-	for (const signal of ["SIGINT", "SIGTERM"] as const) {
-		process.once(signal, () => {
-			logger.info(`Received ${signal}, shutting down`);
-			close()
-				.catch((error) => logger.error({ error: getErrorMessage(error) }, "Shutdown failed"))
-				.finally(() => process.exit(0));
-		});
-	}
+/** One handler for both signals: exit 0 when clean, 1 when forced or failed; a second signal exits 1. */
+function onShutdown(close: () => Promise<{ forced: boolean } | undefined>, logger: Logger): void {
+	let shuttingDown = false;
+	const handle = (signal: string) => {
+		if (shuttingDown) {
+			logger.warn(`Received ${signal} again, exiting immediately`);
+			process.exit(1);
+		}
+		shuttingDown = true;
+		logger.info(`Received ${signal}, shutting down`);
+		close().then(
+			(result) => {
+				if (result?.forced) logger.warn("forced shutdown");
+				process.exit(result?.forced ? 1 : 0);
+			},
+			(error) => {
+				logger.error({ error: getErrorMessage(error) }, "Shutdown failed");
+				process.exit(1);
+			},
+		);
+	};
+	process.on("SIGINT", handle);
+	process.on("SIGTERM", handle);
 }
 
 async function startStdioTransport(createServer: () => McpServer, logger: Logger): Promise<void> {
@@ -144,9 +175,15 @@ async function startStdioTransport(createServer: () => McpServer, logger: Logger
 	const handle = serveStdio(createServer, {
 		onerror: (error) => logger.error({ error: getErrorMessage(error) }, "stdio error"),
 	});
-	onShutdown(() => handle.close(), logger);
+	onShutdown(async () => {
+		await handle.close();
+		return undefined;
+	}, logger);
 
 	logger.info("Connected via stdio");
+	if (process.stdin.isTTY) {
+		logger.warn("waiting for an MCP client on stdin; use --transport http for a network server");
+	}
 }
 
 async function startHttpTransport(
@@ -159,8 +196,18 @@ async function startHttpTransport(
 		host: config.mcpHost,
 		port: config.mcpPort,
 		logger,
+		shutdownTimeoutMs: config.mcpShutdownTimeoutMs,
+		allowedHosts: config.mcpAllowedHosts,
+		allowedOrigins: config.mcpAllowedOrigins,
+		authToken: config.mcpAuthToken,
+		maxBodyBytes: config.mcpMaxBodyBytes,
 	});
 
+	if (!config.mcpAuthToken && !isLoopbackHost(config.mcpHost)) {
+		logger.warn(
+			"MCP_ALLOW_UNAUTHENTICATED=true: serving /mcp on a non-loopback address without authentication",
+		);
+	}
 	await httpServer.start();
 	onShutdown(() => httpServer.close(), logger);
 }

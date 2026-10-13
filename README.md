@@ -20,9 +20,9 @@ zoekt-mcp [OPTIONS]
 
 OPTIONS:
   --url <url>          Zoekt webserver URL (required, or set ZOEKT_URL)
-  --transport <mode>   Transport mode: "http" or "stdio" (default: auto-detect)
+  --transport <mode>   Transport mode: "stdio" (default) or "http"
   --port <number>      HTTP server port (default: 3000)
-  --host <address>     HTTP server host (default: 0.0.0.0)
+  --host <address>     HTTP server host (default: 127.0.0.1)
   --log-level <level>  Log level: debug, info, warn, error (default: info)
   --timeout <ms>       Zoekt request timeout in ms (default: 30000)
   --help, -h           Show help
@@ -38,14 +38,21 @@ EXAMPLES:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZOEKT_URL` | (required) | Zoekt webserver URL |
-| `MCP_TRANSPORT` | auto-detect | `http` or `stdio` |
+| `ZOEKT_URL` | (required) | Zoekt webserver URL (`http://` or `https://`) |
+| `MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `MCP_PORT` | `3000` | HTTP server port |
-| `MCP_HOST` | `0.0.0.0` | HTTP server host |
+| `MCP_HOST` | `127.0.0.1` | HTTP server host; a non-loopback host requires a token (see below) |
+| `MCP_ALLOWED_HOSTS` | (none) | Extra `Host` hostnames, comma-separated (port-agnostic; `*` disables the check) |
+| `MCP_ALLOWED_ORIGINS` | (none) | Extra allowed browser origins, comma-separated (e.g. `https://app.example.com`); also granted CORS |
+| `MCP_AUTH_TOKEN` | (none) | Require `Authorization: Bearer <token>` on `/mcp` (at least 16 characters) |
+| `MCP_AUTH_TOKEN_FILE` | (none) | Read the bearer token from a file (mutually exclusive with `MCP_AUTH_TOKEN`) |
+| `MCP_ALLOW_UNAUTHENTICATED` | `false` | `true` allows a non-loopback bind without a token |
+| `MCP_MAX_BODY_BYTES` | `1048576` | Largest `/mcp` request body (1024 to 16777216); larger bodies get 413 |
+| `MCP_SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period on SIGINT/SIGTERM before connections are dropped (0 to 120000) |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `ZOEKT_TIMEOUT_MS` | `30000` | Request timeout in milliseconds |
 
-CLI flags take precedence over environment variables.
+CLI flags take precedence over environment variables. Empty values count as unset. Configuration and usage errors exit with code 2.
 
 ## Tools
 
