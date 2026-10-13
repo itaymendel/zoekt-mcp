@@ -299,7 +299,7 @@ describe("C4 /print mapping", () => {
 
 	test("404 is a plain HTTP error (the old dead 404 branch is gone)", async () => {
 		const client = clientWith(stubResponse("nope", { status: 404, statusText: "Not Found" }));
-		const error = await rejection(client.getFileContent(ALPHA_REPO, "x"));
+		const error = await rejection(client.print(ALPHA_REPO, "x"));
 
 		expect(error.message).toBe("Zoekt /print failed: HTTP 404 Not Found: nope");
 	});

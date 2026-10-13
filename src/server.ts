@@ -2,17 +2,17 @@ import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import pkg from "../package.json";
 import type { Logger } from "./logger.js";
 import {
-	executeFileContent,
-	type FileContentInput,
-	fileContentDescription,
-	fileContentSchema,
-} from "./tools/file-content.js";
-import {
 	executeListRepos,
 	type ListReposInput,
 	listReposDescription,
 	listReposSchema,
 } from "./tools/list-repos.js";
+import {
+	executeReadFile,
+	type ReadFileInput,
+	readFileDescription,
+	readFileSchema,
+} from "./tools/read-file.js";
 import type { ToolContext, ToolResult } from "./tools/result.js";
 import {
 	executeSearch,
@@ -78,10 +78,10 @@ export function createMcpServer({ client: zoektClient, logger }: ServerDeps): Mc
 	);
 
 	server.registerTool(
-		"file_content",
-		{ description: fileContentDescription, inputSchema: fileContentSchema },
-		createToolHandler(logger, "file_content", (input: FileContentInput, ctx) =>
-			executeFileContent(zoektClient, input, ctx),
+		"read_file",
+		{ description: readFileDescription, inputSchema: readFileSchema },
+		createToolHandler(logger, "read_file", (input: ReadFileInput, ctx) =>
+			executeReadFile(zoektClient, input, ctx),
 		),
 	);
 

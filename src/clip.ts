@@ -34,3 +34,10 @@ export function hardClip(s: string, max: number, marker = "[output truncated]"):
 	const end = isHigh(s.charCodeAt(max - 1)) ? max - 1 : max;
 	return `${s.slice(0, end)}\n${marker}`;
 }
+
+/** `text` cut to `max` characters (no half surrogate pair) plus a `…[+N chars]` marker, when it is longer. */
+export function clipLineTail(text: string, max: number): string {
+	if (text.length <= max) return text;
+	const end = isHigh(text.charCodeAt(max - 1)) ? max - 1 : max;
+	return `${text.slice(0, end)}…[+${text.length - end} chars]`;
+}

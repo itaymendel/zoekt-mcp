@@ -66,7 +66,7 @@ describe("Streamable HTTP on /mcp", () => {
 		const { baseUrl, zoektFetch } = await start();
 		const { tools, result } = await roundTrip(baseUrl);
 
-		expect(tools.map((t) => t.name).sort()).toEqual(["file_content", "list_repos", "search"]);
+		expect(tools.map((t) => t.name).sort()).toEqual(["list_repos", "read_file", "search"]);
 		expect(result.isError).toBeFalsy();
 		expect(zoektFetch.requests[0]?.searchParams.get("q")).toBe("handleRequest");
 	});

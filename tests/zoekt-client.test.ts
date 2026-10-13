@@ -36,9 +36,10 @@ describe("ZoektClient", () => {
 		expect(fetch.requests[0].searchParams.get("ctx")).toBe("5");
 	});
 
-	test("should get file content", async () => {
+	test("should print file content", async () => {
 		const { client, fetch } = createClient();
-		const content = await client.getFileContent(ALPHA_REPO, "docs/notes.txt", "main");
+		const { bytes } = await client.print(ALPHA_REPO, "docs/notes.txt", "main");
+		const content = new TextDecoder().decode(bytes);
 
 		expect(content).toBe(loadCase("print-ok").response.bodyText as string);
 		expect(fetch.requests[0].searchParams.get("r")).toBe(ALPHA_REPO);

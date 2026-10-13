@@ -81,16 +81,3 @@ export function redactUrl(url: string): string {
 	// Defence for inputs URL parsing did not split (e.g. "u:secret@", "//u:secret@host").
 	return out.replace(/(^|\/\/)(?!\*{3}[:@])[^/@\s]+@/, "$1***@");
 }
-
-export function formatFileContentAsText(
-	repository: string,
-	filePath: string,
-	content: string,
-	branch?: string,
-): string {
-	const lineCount = content.split("\n").length;
-	const basePath = `${repository}/${filePath}`;
-	const location = branch ? `${basePath} (branch: ${branch})` : basePath;
-
-	return `File: ${location}\nLines: ${lineCount}\n\n${content}`;
-}

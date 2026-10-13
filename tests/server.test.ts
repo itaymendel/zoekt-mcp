@@ -43,10 +43,10 @@ describe("tool schemas", () => {
 		expect(search?.inputSchema.required).toEqual(["query"]);
 	});
 
-	test("list_repos and file_content expose their properties", async () => {
+	test("list_repos and read_file expose their properties", async () => {
 		const { tools } = await client.listTools();
 		const listRepos = tools.find((t) => t.name === "list_repos");
-		const fileContent = tools.find((t) => t.name === "file_content");
+		const readFile = tools.find((t) => t.name === "read_file");
 
 		expect(Object.keys(listRepos?.inputSchema.properties ?? {})).toEqual([
 			"filter",
@@ -58,12 +58,15 @@ describe("tool schemas", () => {
 		expect(props.limit).toMatchObject({ minimum: 1, maximum: 200, default: 50 });
 		expect(props.offset).toMatchObject({ minimum: 0, default: 0 });
 		expect(listRepos?.inputSchema.required ?? []).toEqual([]);
-		expect(Object.keys(fileContent?.inputSchema.properties ?? {}).sort()).toEqual([
+		expect(Object.keys(readFile?.inputSchema.properties ?? {}).sort()).toEqual([
 			"branch",
-			"filePath",
-			"repository",
+			"endLine",
+			"path",
+			"repo",
+			"startLine",
 		]);
-		expect(fileContent?.inputSchema.required?.slice().sort()).toEqual(["filePath", "repository"]);
+		expect(readFile?.inputSchema.required?.slice().sort()).toEqual(["path", "repo"]);
+		expect(tools.some((t) => t.name === "file_content")).toBe(false);
 	});
 });
 
@@ -143,17 +146,19 @@ describe("tool errors carry Zoekt's text", () => {
 		}
 	});
 
-	test("file_content for a missing file says it is not in the index", async () => {
-		const mcp = await connectTestClient(testDeps(mockZoektFetch({ "/print": "print-not-found" })));
+	test("read_file for a missing file says it is not found", async () => {
+		const mcp = await connectTestClient(
+			testDeps(mockZoektFetch({ "/print": "print-not-found", "/search": "list-all" })),
+		);
 		try {
 			const result = await mcp.client.callTool({
-				name: "file_content",
-				arguments: { repository: "example.test/alpha", filePath: "nope.txt" },
+				name: "read_file",
+				arguments: { repo: "example.test/alpha", path: "nope.txt" },
 			});
 
 			expect(result.isError).toBe(true);
-			expect(resultText(result)).toBe(
-				"file_content error: File not found in index: example.test/alpha:nope.txt",
+			expect(resultText(result)).toStartWith(
+				"read_file error: File not found: example.test/alpha:nope.txt.",
 			);
 		} finally {
 			await mcp.close();
