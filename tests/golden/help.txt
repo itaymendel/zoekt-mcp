@@ -1,0 +1,21 @@
+zoekt-mcp - MCP server for Zoekt code search
+
+Usage: zoekt-mcp [options]
+
+Options:
+  --url <url>          Zoekt webserver URL (required, or set ZOEKT_URL)
+  --transport <mode>   Transport: "stdio" (default) or "http"
+  --port <number>      HTTP port (default: 3000)
+  --host <address>     HTTP bind address (default: 127.0.0.1)
+  --log-level <level>  debug, info, warn or error (default: info)
+  --timeout <ms>       Zoekt request timeout (default: 30000)
+  -h, --help           Show this help
+  -v, --version        Show the version
+
+Every option also has an environment variable (--url is ZOEKT_URL, and so on).
+HTTP security settings are environment-only: MCP_AUTH_TOKEN, MCP_AUTH_TOKEN_FILE,
+MCP_ALLOWED_HOSTS, MCP_ALLOWED_ORIGINS, MCP_ALLOW_UNAUTHENTICATED, MCP_MAX_BODY_BYTES
+and MCP_SHUTDOWN_TIMEOUT_MS. Exit code 2 means a usage or configuration error.
+
+Example: zoekt-mcp --url http://localhost:6070
+Docs:    https://github.com/itaymendel/zoekt-mcp#readme
