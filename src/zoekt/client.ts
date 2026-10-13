@@ -11,10 +11,14 @@ import {
 } from "./errors.js";
 import {
 	ApiResponseSchema,
+	ApiSearchResponseSchema,
 	type ListReposOptions,
 	type RepoListWire,
 	type SearchOptions,
 	type SearchResponse,
+	type SearchSymbol,
+	type SymbolIndex,
+	symbolKey,
 } from "./types.js";
 
 /** Longest Zoekt error body quoted in an error message. */
@@ -70,6 +74,8 @@ export class ZoektClient {
 	private readonly timeoutMs: number;
 	private readonly logger: Logger;
 	private readonly fetchFn: typeof fetch;
+	/** `/api/search` is absent (no `-rpc`) or unusable; symbol enrichment is skipped from then on. */
+	private symbolsUnavailable = false;
 
 	constructor(options: ZoektClientOptions) {
 		// Node's fetch throws (echoing the password) for URLs with userinfo, so move it to a header.
@@ -94,17 +100,80 @@ export class ZoektClient {
 	}
 
 	async search(
-		{ query, num, contextLines }: SearchOptions,
+		{ query, num, contextLines, symbols }: SearchOptions,
 		req: RequestOptions = {},
 	): Promise<SearchResponse> {
-		const data = await this.searchEndpoint({ q: query, num, ctx: contextLines }, req);
+		// Symbols come from a second request run in parallel; it is cancelled if the search fails.
+		const enrich = symbols && !this.symbolsUnavailable ? new AbortController() : undefined;
+		const symbolsPending = enrich
+			? this.fetchSymbols(query, num, {
+					signal: req.signal ? AbortSignal.any([req.signal, enrich.signal]) : enrich.signal,
+				})
+			: undefined;
+		let data: Awaited<ReturnType<ZoektClient["searchEndpoint"]>>;
+		try {
+			data = await this.searchEndpoint({ q: query, num, ctx: contextLines }, req);
+		} catch (error) {
+			enrich?.abort();
+			throw error;
+		}
 		if (!data.result) {
+			enrich?.abort();
 			throw new ZoektProtocolError(
 				"Query was interpreted as a repository listing (it has only repo: filters); add a content term or use list_repos",
 			);
 		}
 		this.logger.debug({ query, fileCount: data.result.FileMatches.length }, "Search completed");
-		return { result: data.result };
+		const found = await symbolsPending;
+		return found ? { result: data.result, symbols: found } : { result: data.result };
+	}
+
+	/**
+	 * Best-effort ctags symbols per match line via `POST /api/search` (needs `zoekt-webserver
+	 * -rpc`), which unlike `/search` reports `SymbolInfo`. Never throws: any failure is logged at
+	 * debug and yields `undefined`. A definitive "not available" answer (404, HTML, non-JSON,
+	 * unknown shape) disables further attempts on this client; timeouts and network errors do not.
+	 */
+	private async fetchSymbols(
+		query: string,
+		num: number | undefined,
+		req: RequestOptions,
+	): Promise<SymbolIndex | undefined> {
+		try {
+			const raw = await this.request("api/search", {}, "application/json", req, {
+				json: {
+					Q: query,
+					Opts: {
+						ChunkMatches: true,
+						NumContextLines: 0,
+						...(num === undefined ? {} : { MaxDocDisplayCount: num }),
+					},
+				},
+			});
+			let parsed: ReturnType<typeof ApiSearchResponseSchema.safeParse> | undefined;
+			if (!raw.isHtml) {
+				try {
+					parsed = ApiSearchResponseSchema.safeParse(JSON.parse(decode(raw.bytes)));
+				} catch {
+					// not JSON
+				}
+			}
+			if (!parsed?.success) {
+				this.symbolsUnavailable = true;
+				this.logger.debug(
+					{ contentType: raw.contentType },
+					"Zoekt /api/search answer is unusable; symbol info disabled",
+				);
+				return undefined;
+			}
+			return indexSymbols(parsed.data);
+		} catch (error) {
+			if (error instanceof ZoektHttpError && (error.status === 404 || error.status === 405)) {
+				this.symbolsUnavailable = true;
+			}
+			this.logger.debug({ error: String(error) }, "Symbol info unavailable");
+			return undefined;
+		}
 	}
 
 	/**
@@ -213,15 +282,20 @@ export class ZoektClient {
 	 * map Zoekt's 418 handler errors to a specific error, otherwise a `ZoektHttpError`.
 	 */
 	private async request(
-		endpoint: "search" | "print",
+		endpoint: "search" | "print" | "api/search",
 		params: Record<string, string | number | undefined>,
 		accept: string,
 		req: RequestOptions,
-		{ maxBytes, on418 }: { maxBytes?: number; on418?: (body: ErrorBody) => Error | undefined } = {},
+		{
+			maxBytes,
+			on418,
+			json,
+		}: { maxBytes?: number; on418?: (body: ErrorBody) => Error | undefined; json?: unknown } = {},
 	): Promise<RawResponse> {
-		const query = buildParams(params);
-		const url = `${this.baseUrl}/${endpoint}?${query}`;
-		this.logger.debug({ url: `${endpoint}?${query}` }, "Fetching from Zoekt");
+		const query = buildParams(params).toString();
+		const path = query ? `${endpoint}?${query}` : endpoint;
+		const url = `${this.baseUrl}/${path}`;
+		this.logger.debug({ url: path }, "Fetching from Zoekt");
 
 		const timeout = AbortSignal.timeout(this.timeoutMs);
 		const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
@@ -229,7 +303,17 @@ export class ZoektClient {
 		let response: Response;
 		let body: { bytes: Uint8Array; truncated: boolean };
 		try {
-			response = await this.fetchFn(url, { signal, headers: this.headers(accept) });
+			response = await this.fetchFn(
+				url,
+				json === undefined
+					? { signal, headers: this.headers(accept) }
+					: {
+							method: "POST",
+							signal,
+							headers: { ...this.headers(accept), "Content-Type": "application/json" },
+							body: JSON.stringify(json),
+						},
+			);
 			body = await readBody(response, response.ok ? maxBytes : MAX_ERROR_READ_BYTES);
 		} catch (error) {
 			throw this.mapFetchError(error, req.signal);
@@ -329,6 +413,33 @@ async function readBody(
 		at += chunk.length;
 	}
 	return { bytes, truncated };
+}
+
+/** Symbols per `(repo, file, line)`; `SymbolInfo[i]` belongs to `Ranges[i]`, duplicates dropped. */
+function indexSymbols({ Result }: ReturnType<typeof ApiSearchResponseSchema.parse>): SymbolIndex {
+	const index: SymbolIndex = new Map();
+	for (const file of Result.Files) {
+		for (const chunk of file.ChunkMatches) {
+			chunk.SymbolInfo.forEach((info, i) => {
+				if (!info?.Sym) return;
+				const line = chunk.Ranges[i]?.Start.LineNumber ?? chunk.ContentStart?.LineNumber ?? 0;
+				if (line < 1) return;
+				const symbol: SearchSymbol = { name: info.Sym, kind: info.Kind };
+				if (info.Parent) {
+					symbol.parent = info.Parent;
+					if (info.ParentKind) symbol.parentKind = info.ParentKind;
+				}
+				const key = symbolKey(file.Repository, file.FileName, line);
+				const list = index.get(key) ?? [];
+				const dup = list.some(
+					(s) => s.name === symbol.name && s.kind === symbol.kind && s.parent === symbol.parent,
+				);
+				if (!dup) list.push(symbol);
+				index.set(key, list);
+			});
+		}
+	}
+	return index;
 }
 
 function decode(bytes: Uint8Array): string {

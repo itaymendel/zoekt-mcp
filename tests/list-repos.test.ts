@@ -249,12 +249,12 @@ describe("normalizeRepoList and formatting", () => {
 		expect(list.repos[0]).toEqual({
 			name: "example.test/alpha",
 			branches: [
-				{ name: "main", sha: "2f77c548bb76294591ff84b0195a1c742998a28a" },
-				{ name: "main-old", sha: "3a2a361f90746fa7b565dbfd16210b88d017ee86" },
-				{ name: "feature", sha: "115f341ddf85e8d64107abf59c8d990af1561af2" },
+				{ name: "main", sha: "65215178838c403c2b1ac794a567d135dff71cfb" },
+				{ name: "main-old", sha: "d2e349ab119c2f799d46b2da63e763e3e7e69c9a" },
+				{ name: "feature", sha: "9296f2d10d2062d0bdfb16c00bb5789f42c06a11" },
 			],
-			files: 13,
-			sizeBytes: 448,
+			files: 15,
+			sizeBytes: 816,
 		});
 		expect(JSON.stringify(list)).not.toContain("null");
 	});

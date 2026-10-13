@@ -91,13 +91,13 @@ The text block is the primary form, written for the model. Each tool also declar
 
 ### Query cheat sheet
 
-Copied from the `search` tool description, which is what the agent sees.
+Copied from the `search` tool description, which is what the agent sees. Rows of `sym:` searches end with `  [kind name]` or `  [kind name in parentKind parent]`; that data comes from `POST /api/search`, which needs `zoekt-webserver -rpc` (the official image has it) and is skipped silently when unavailable.
 
 - Every word is an unanchored RE2 regex, not a literal: `a.b` also matches `aXb`. A space means AND (within one file), lowercase `or` means OR, and parentheses group. `and` is not an operator; it is searched as text. `X or Y r:z` means `X or (Y r:z)`, so write `(X or Y) r:z`.
 - Case is smart by default: all-lowercase terms ignore case, any capital makes the term case-sensitive. `case:yes` and `case:no` force it.
 - A leading `-` negates a term or filter.
 - Filters: `r:` or `repo:` (regex on the repo name, **case-sensitive**; use `r:(?i)acme`); `f:` or `file:` (regex on the path); `lang:go` (no short form; an unknown language matches nothing); `b:` or `branch:` (substring of the branch name; `branch:HEAD` is the default branch); `c:` (file content only); `archived:`, `fork:`, `public:` with yes or no; `meta.<field>:` (regex on repo metadata).
-- `sym:Name` finds symbol definitions. It needs an index built with ctags; zero results may mean there are no symbols, so retry as plain text.
+- `sym:Name` finds symbol definitions and tags each matching row with `[kind name in parentKind parent]`. It needs an index built with ctags; zero results may mean there are no symbols, so retry as plain text.
 - `type:file` returns matching file paths only, no lines. Use it to find files by name.
 - Quotes keep a phrase together. Inside quotes write `\\.` for a literal dot and `\"` for a quote.
 

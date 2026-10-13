@@ -22,12 +22,12 @@
 				"Stats": {
 					"Repos": 3,
 					"Shards": 3,
-					"Documents": 16,
-					"IndexBytes": 1272,
-					"ContentBytes": 573,
-					"NewLinesCount": 29,
-					"DefaultBranchNewLinesCount": 26,
-					"OtherBranchesNewLinesCount": 41
+					"Documents": 18,
+					"IndexBytes": 1448,
+					"ContentBytes": 941,
+					"NewLinesCount": 49,
+					"DefaultBranchNewLinesCount": 46,
+					"OtherBranchesNewLinesCount": 81
 				},
 				"Repos": [
 					{
@@ -37,24 +37,24 @@
 						"Branches": [
 							{
 								"Name": "main",
-								"Version": "2f77c548bb76294591ff84b0195a1c742998a28a",
+								"Version": "65215178838c403c2b1ac794a567d135dff71cfb",
 								"URL": ""
 							},
 							{
 								"Name": "main-old",
-								"Version": "3a2a361f90746fa7b565dbfd16210b88d017ee86",
+								"Version": "d2e349ab119c2f799d46b2da63e763e3e7e69c9a",
 								"URL": ""
 							},
 							{
 								"Name": "feature",
-								"Version": "115f341ddf85e8d64107abf59c8d990af1561af2",
+								"Version": "9296f2d10d2062d0bdfb16c00bb5789f42c06a11",
 								"URL": ""
 							}
 						],
-						"Files": 13,
+						"Files": 15,
 						"Metadata": null,
-						"Size": 448,
-						"MemorySize": 852
+						"Size": 816,
+						"MemorySize": 1028
 					},
 					{
 						"Name": "example.test/beta",

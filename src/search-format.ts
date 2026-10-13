@@ -1,12 +1,14 @@
 import { clipLine, hardClip, splitLines, stripEol } from "./clip.js";
 import { pathHeading, plural, repoHeading } from "./utils.js";
-import type {
-	FileMatch,
-	Match,
-	SearchFile,
-	SearchLine,
-	SearchModel,
-	SearchResponse,
+import {
+	type FileMatch,
+	type Match,
+	type SearchFile,
+	type SearchLine,
+	type SearchModel,
+	type SearchResponse,
+	type SearchSymbol,
+	symbolKey,
 } from "./zoekt/types.js";
 
 /** Output budget in characters for one `search` result (footer included, give or take the reserve). */
@@ -67,6 +69,7 @@ function addContext(byLine: Map<number, SearchLine>, m: Match, contextLines: num
 function normalizeFile(
 	file: FileMatch,
 	{ contextLines, maxMatchesPerFile = Number.POSITIVE_INFINITY }: NormalizeOptions,
+	symbols?: SearchResponse["symbols"],
 ): SearchFile {
 	const filenameMatch = file.Matches.some((m) => m.LineNum === 0);
 	const all = file.Matches.filter((m) => m.LineNum > 0);
@@ -74,7 +77,12 @@ function normalizeFile(
 	const content = all.slice(0, maxMatchesPerFile);
 
 	const byLine = new Map<number, SearchLine>();
-	for (const m of content) byLine.set(m.LineNum, matchLine(m));
+	for (const m of content) {
+		const line = matchLine(m);
+		const found = symbols?.get(symbolKey(file.Repo, file.FileName, m.LineNum));
+		if (found?.length) line.symbols = found;
+		byLine.set(m.LineNum, line);
+	}
 	if (contextLines > 0) for (const m of content) addContext(byLine, m, contextLines);
 
 	// Hidden lines that already appear as context are not hidden.
@@ -101,7 +109,7 @@ export function normalizeSearch(response: SearchResponse, opts: NormalizeOptions
 	const { FileMatches, Stats } = response.result;
 	const { maxFiles = Number.POSITIVE_INFINITY, maxMatchesPerFile = Number.POSITIVE_INFINITY } =
 		opts;
-	const files = FileMatches.slice(0, maxFiles).map((f) => normalizeFile(f, opts));
+	const files = FileMatches.slice(0, maxFiles).map((f) => normalizeFile(f, opts, response.symbols));
 	// Without Stats, count filename matches too: the footer subtracts them again.
 	const matchLines = files.reduce(
 		(n, f) => n + f.lines.filter((l) => l.match).length + (f.filenameMatch ? 1 : 0),
@@ -149,6 +157,21 @@ function fileHeader(file: SearchFile, withBranches: boolean) {
 	return header;
 }
 
+/** Longest `[...]` symbol suffix on one row, brackets included. */
+const MAX_SYMBOL_SUFFIX = 120;
+
+function symbolLabel({ name, kind, parent, parentKind }: SearchSymbol) {
+	const own = kind ? `${kind} ${name}` : name;
+	if (!parent) return own;
+	return `${own} in ${parentKind ? `${parentKind} ${parent}` : parent}`;
+}
+
+/** `  [func Name in struct Parent]` for a match row, symbols joined by `; `; capped in length. */
+function symbolSuffix(symbols: SearchSymbol[]) {
+	const inner = clipLine(symbols.map(symbolLabel).join("; "), { max: MAX_SYMBOL_SUFFIX - 2 });
+	return `  [${inner}]`;
+}
+
 function renderFile(file: SearchFile, withBranches: boolean): string {
 	const out = [fileHeader(file, withBranches)];
 	if (!isNotIndexed(file)) {
@@ -156,7 +179,8 @@ function renderFile(file: SearchFile, withBranches: boolean): string {
 		for (const l of file.lines) {
 			if (prev > 0 && l.n !== prev + 1) out.push("--");
 			const focus = l.ranges?.[0];
-			out.push(`${l.n}${l.match ? ":" : "-"}${clipLine(l.text, { focus })}`);
+			const suffix = l.match && l.symbols?.length ? symbolSuffix(l.symbols) : "";
+			out.push(`${l.n}${l.match ? ":" : "-"}${clipLine(l.text, { focus })}${suffix}`);
 			prev = l.n;
 		}
 		if (file.hiddenMatchLines > 0) {
