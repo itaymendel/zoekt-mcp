@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_LINE_CHARS } from "../src/clip.js";
 import { capSearch, normalizeSearch, renderSearchText } from "../src/search-format.js";
-import { executeSearch, searchSchema } from "../src/tools/search.js";
+import { executeSearch, searchOutputSchema, searchSchema } from "../src/tools/search.js";
 import { hasSymAtom } from "../src/zoekt/query.js";
 import {
 	SearchResultSchema,
@@ -113,17 +113,32 @@ describe("symbol suffix", () => {
 		expect(text).toContain("[func LookupEntry in struct registry.Registry]");
 	});
 
-	test("model carries symbols on match lines", async () => {
-		const { data } = await run(SYM_ROUTES);
-		const go = data?.files.find((f) => f.path === "src/registry.go");
+	test("structured output carries symbols on match rows only", async () => {
+		const { structured } = await run(SYM_ROUTES, { contextLines: 0 });
+		const go = structured.files.find((f) => f.path === "src/registry.go");
+		const ts = structured.files.find((f) => f.path === "src/registry.ts");
 
-		expect(go?.lines.find((l) => l.n === 5)?.symbols).toEqual([
+		expect(go?.lines.find((l) => l.line === 5)?.symbols).toEqual([
 			{ name: "LookupEntry", kind: "func", parent: "registry.Registry", parentKind: "struct" },
 		]);
-		const ts = data?.files.find((f) => f.path === "src/registry.ts");
-		expect(ts?.lines.find((l) => l.n === 7)?.symbols).toEqual([
+		expect(ts?.lines.find((l) => l.line === 7)?.symbols).toEqual([
 			{ name: "lookupAll", kind: "function" },
 		]);
+		for (const f of structured.files)
+			for (const l of f.lines) if (!l.isMatch) expect(l).not.toHaveProperty("symbols");
+		expect(searchOutputSchema.safeParse(structured).success).toBe(true);
+	});
+
+	test("structured output has no symbols when enrichment fails or is not wanted", async () => {
+		const failed = await run({
+			"/search": "search-sym",
+			"/api/search": () => new Response("nope", { status: 404 }),
+		});
+		const plain = await run({ "/search": "search-sym" }, { query: "-sym:zzz lookup" });
+
+		for (const { structured } of [failed, plain])
+			for (const f of structured.files)
+				for (const l of f.lines) expect(l).not.toHaveProperty("symbols");
 	});
 });
 

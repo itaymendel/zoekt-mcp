@@ -73,6 +73,19 @@ const searchLineSchema = z.object({
 			`Line text without the line ending; indentation kept, clipped to ${MAX_LINE_LENGTH} characters around the first match`,
 		),
 	isMatch: z.boolean().describe("true for a matching line, false for a context line"),
+	symbols: z
+		.array(
+			z.object({
+				name: z.string().describe("Symbol name"),
+				kind: z.string().describe("ctags kind, e.g. func, method, class"),
+				parent: z.string().optional().describe("Enclosing symbol, e.g. demo.Server"),
+				parentKind: z.string().optional().describe("ctags kind of the parent, e.g. struct"),
+			}),
+		)
+		.optional()
+		.describe(
+			"Symbols defined on this line; only on match lines of sym: searches when Zoekt reports them. The text suffix shows the same data, capped at 120 characters",
+		),
 });
 
 export const searchFileSchema = z.object({
@@ -130,6 +143,7 @@ function toSearchOutput(model: SearchModel): SearchOutput {
 				line: l.n,
 				text: clipLine(l.text, { focus: l.ranges?.[0], max: MAX_LINE_LENGTH }),
 				isMatch: l.match,
+				...(l.symbols?.length ? { symbols: l.symbols } : {}),
 			})),
 			hiddenMatchLines: f.hiddenMatchLines,
 		})),
