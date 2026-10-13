@@ -30,12 +30,24 @@ const MAX_SNIPPET = 200;
 const MAX_ERROR_READ_BYTES = 64 * 1024;
 /** Zoekt's `NOT-INDEXED: <reason>` stub for binary/oversized files is far below this. */
 const NOT_INDEXED_MAX_BYTES = 256;
+/** Own budget for symbol enrichment (capped by the client timeout); it must never dominate a search. */
+const SYMBOLS_TIMEOUT_MS = 3000;
+/** How much longer a finished search waits for symbols before returning without them. */
+const SYMBOLS_GRACE_MS = 750;
+/** After `/api/search` proves unusable (404, HTML, bad shape) enrichment is skipped this long. */
+export const SYMBOLS_COOLDOWN_MS = 5 * 60_000;
+/** Never read more than this from `/api/search`; a larger answer is dropped for that call. */
+const SYMBOLS_MAX_BYTES = 4 * 1024 * 1024;
 
 export interface ZoektClientOptions {
 	baseUrl: string;
 	timeoutMs: number;
 	logger: Logger;
 	fetch?: typeof fetch;
+	/** Clock for the symbol cooldown (ms); tests inject one. */
+	now?: () => number;
+	/** Overrides `SYMBOLS_GRACE_MS`; tests shorten it. */
+	symbolsGraceMs?: number;
 }
 
 /** Per-call options; `signal` cancels the upstream Zoekt request. */
@@ -75,8 +87,10 @@ export class ZoektClient {
 	private readonly timeoutMs: number;
 	private readonly logger: Logger;
 	private readonly fetchFn: typeof fetch;
-	/** `/api/search` is absent (no `-rpc`) or unusable; symbol enrichment is skipped from then on. */
-	private symbolsUnavailable = false;
+	private readonly now: () => number;
+	private readonly symbolsGraceMs: number;
+	/** `/api/search` is absent (no `-rpc`) or unusable; symbol enrichment is skipped until then. */
+	private symbolsDisabledUntil = 0;
 
 	constructor(options: ZoektClientOptions) {
 		// Node's fetch throws (echoing the password) for URLs with userinfo, so move it to a header.
@@ -98,6 +112,8 @@ export class ZoektClient {
 		this.timeoutMs = options.timeoutMs;
 		this.logger = options.logger.child({ component: "zoekt-client" });
 		this.fetchFn = options.fetch ?? fetch;
+		this.now = options.now ?? Date.now;
+		this.symbolsGraceMs = options.symbolsGraceMs ?? SYMBOLS_GRACE_MS;
 	}
 
 	async search(
@@ -105,7 +121,8 @@ export class ZoektClient {
 		req: RequestOptions = {},
 	): Promise<SearchResponse> {
 		// Symbols come from a second request run in parallel; it is cancelled if the search fails.
-		const enrich = symbols && !this.symbolsUnavailable ? new AbortController() : undefined;
+		const enrich =
+			symbols && this.now() >= this.symbolsDisabledUntil ? new AbortController() : undefined;
 		const symbolsPending = enrich
 			? this.fetchSymbols(query, num, {
 					signal: req.signal ? AbortSignal.any([req.signal, enrich.signal]) : enrich.signal,
@@ -124,7 +141,17 @@ export class ZoektClient {
 			throw error;
 		}
 		this.logger.debug({ query, fileCount: data.result.FileMatches.length }, "Search completed");
-		const found = await symbolsPending;
+		// The main result is ready: give enrichment a short grace period, then abort and go without.
+		let found: SymbolIndex | undefined;
+		if (symbolsPending && enrich) {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const grace = new Promise<undefined>((resolve) => {
+				timer = setTimeout(resolve, this.symbolsGraceMs, undefined);
+			});
+			found = await Promise.race([symbolsPending, grace]);
+			clearTimeout(timer);
+			enrich.abort();
+		}
 		return found ? { result: data.result, symbols: found } : { result: data.result };
 	}
 
@@ -132,37 +159,55 @@ export class ZoektClient {
 	 * Best-effort ctags symbols per match line via `POST /api/search` (needs `zoekt-webserver
 	 * -rpc`), which unlike `/search` reports `SymbolInfo`. Never throws: any failure is logged at
 	 * debug and yields `undefined`. A definitive "not available" answer (404, HTML, non-JSON,
-	 * unknown shape) disables further attempts on this client; timeouts and network errors do not.
+	 * unknown shape) pauses attempts for `SYMBOLS_COOLDOWN_MS`; timeouts, network errors and
+	 * over-large answers do not.
 	 */
 	private async fetchSymbols(
 		query: string,
 		num: number | undefined,
-		req: RequestOptions,
+		req: { signal: AbortSignal },
 	): Promise<SymbolIndex | undefined> {
 		try {
-			const raw = await this.request("api/search", {}, "application/json", req, {
-				json: {
-					Q: query,
-					Opts: {
-						ChunkMatches: true,
-						NumContextLines: 0,
-						...(num === undefined ? {} : { MaxDocDisplayCount: num }),
+			const budget = Math.min(this.timeoutMs, SYMBOLS_TIMEOUT_MS);
+			// Zoekt `SearchOptions` JSON names (api.go); /search itself defaults to 100000 / 1000000.
+			const cap = Math.max((num ?? 20) * 50, 1000);
+			const raw = await this.request(
+				"api/search",
+				{},
+				"application/json",
+				{ signal: AbortSignal.any([req.signal, AbortSignal.timeout(budget)]) },
+				{
+					maxBytes: SYMBOLS_MAX_BYTES,
+					json: {
+						Q: query,
+						Opts: {
+							ChunkMatches: true,
+							NumContextLines: 0,
+							ShardMaxMatchCount: cap,
+							TotalMaxMatchCount: cap * 10,
+							MaxWallTime: budget * 1e6, // Go time.Duration: nanoseconds
+							...(num === undefined ? {} : { MaxDocDisplayCount: num }),
+						},
 					},
 				},
-			});
+			);
+			if (raw.truncated) {
+				this.logger.debug({ maxBytes: SYMBOLS_MAX_BYTES }, "Zoekt /api/search answer too large");
+				return undefined;
+			}
 			const parsed = raw.isHtml ? undefined : parseApiSearch(decode(raw.bytes));
 			if (!parsed) {
-				this.symbolsUnavailable = true;
+				this.symbolsDisabledUntil = this.now() + SYMBOLS_COOLDOWN_MS;
 				this.logger.debug(
 					{ contentType: raw.contentType },
-					"Zoekt /api/search answer is unusable; symbol info disabled",
+					"Zoekt /api/search answer is unusable; symbol info paused",
 				);
 				return undefined;
 			}
 			return indexSymbols(parsed);
 		} catch (error) {
 			if (error instanceof ZoektHttpError && (error.status === 404 || error.status === 405)) {
-				this.symbolsUnavailable = true;
+				this.symbolsDisabledUntil = this.now() + SYMBOLS_COOLDOWN_MS;
 			}
 			this.logger.debug({ error: String(error) }, "Symbol info unavailable");
 			return undefined;
@@ -462,6 +507,8 @@ const NOT_INDEXED_REASONS: Array<[RegExp, "binary" | "too-large", string]> = [
 	[/size limit/i, "too-large", "larger than the indexer's size limit"],
 ];
 
+// Heuristic: /print gives no out-of-band signal, so a short body that is exactly
+// `NOT-INDEXED: <reason>` is taken as the stub. A real file holding only that line is a false positive.
 function notIndexedFromStub(body: string, repo: string, path: string) {
 	const why = /^NOT-INDEXED: (.+)$/.exec(body.trim())?.[1];
 	if (why === undefined) return undefined;

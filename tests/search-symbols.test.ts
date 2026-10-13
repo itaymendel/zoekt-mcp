@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import pino from "pino";
 import { MAX_LINE_CHARS } from "../src/clip.js";
 import { capSearch, normalizeSearch, renderSearchText } from "../src/search-format.js";
 import { executeSearch, searchOutputSchema, searchSchema } from "../src/tools/search.js";
+import { SYMBOLS_COOLDOWN_MS, ZoektClient } from "../src/zoekt/client.js";
 import { hasSymAtom } from "../src/zoekt/query.js";
 import {
 	SearchResultSchema,
@@ -10,7 +12,7 @@ import {
 	symbolKey,
 } from "../src/zoekt/types.js";
 import { expectGolden } from "./helpers/golden.js";
-import { hangingFetch } from "./helpers/hanging-fetch.js";
+import { hangingFetch, streamingBody } from "./helpers/hanging-fetch.js";
 import { testDeps } from "./helpers/test-deps.js";
 import { loadCase, mockZoektFetch, type ZoektRoutes } from "./helpers/zoekt-fixtures.js";
 
@@ -102,7 +104,14 @@ describe("symbol suffix", () => {
 		expect(seen.method).toBe("POST");
 		expect(seen.body).toEqual({
 			Q: "sym:lookup",
-			Opts: { ChunkMatches: true, NumContextLines: 0, MaxDocDisplayCount: 21 },
+			Opts: {
+				ChunkMatches: true,
+				NumContextLines: 0,
+				ShardMaxMatchCount: 1050,
+				TotalMaxMatchCount: 10500,
+				MaxWallTime: 3_000_000_000,
+				MaxDocDisplayCount: 21,
+			},
 		});
 	});
 
@@ -195,7 +204,7 @@ describe("enrichment failure never fails the search", () => {
 		expect(text).not.toContain("  [");
 	});
 
-	test("unavailable /api/search is remembered per client; transient failures are not", async () => {
+	test("unavailable /api/search is paused for the cooldown, then retried; transient failures are not", async () => {
 		const calls: string[] = [];
 		let apiStatus = 503;
 		const fetch = (async (input: string | URL | Request) => {
@@ -208,7 +217,14 @@ describe("enrichment failure never fails the search", () => {
 			}
 			return Response.json(loadCase("search-sym").response.body);
 		}) as typeof globalThis.fetch;
-		const { client } = testDeps(fetch);
+		let clock = 0;
+		const client = new ZoektClient({
+			baseUrl: "http://zoekt.test",
+			timeoutMs: 5000,
+			logger: pino({ level: "silent" }),
+			fetch,
+			now: () => clock,
+		});
 		const input = searchSchema.parse({ query: "sym:lookup", contextLines: 0 });
 		const go = () => executeSearch(client, input, { signal: new AbortController().signal });
 		const apiCalls = () => calls.filter((p) => p === "/api/search").length;
@@ -223,8 +239,60 @@ describe("enrichment failure never fails the search", () => {
 		expect(apiCalls()).toBe(3);
 
 		apiStatus = 200;
+		clock = SYMBOLS_COOLDOWN_MS - 1;
 		expect((await go()).text).not.toContain("  [");
 		expect(apiCalls()).toBe(3);
+
+		clock = SYMBOLS_COOLDOWN_MS;
+		expect((await go()).text).toContain("[func LookupEntry");
+		expect(apiCalls()).toBe(4);
+	});
+
+	test("a hanging /api/search does not delay the result past the grace period", async () => {
+		const symbols = hangingFetch();
+		const main = loadCase("search-sym").response.body;
+		const fetch = ((input: string | URL | Request, init?: RequestInit) =>
+			new URL(String(input)).pathname === "/api/search"
+				? symbols.fetch(input, init)
+				: Promise.resolve(Response.json(main))) as typeof globalThis.fetch;
+		const client = new ZoektClient({
+			baseUrl: "http://zoekt.test",
+			timeoutMs: 5000,
+			logger: pino({ level: "silent" }),
+			fetch,
+			symbolsGraceMs: 20,
+		});
+		const input = searchSchema.parse({ query: "sym:lookup", contextLines: 0 });
+		const started = performance.now();
+		const { text } = await executeSearch(client, input, { signal: new AbortController().signal });
+
+		expect(performance.now() - started).toBeLessThan(1000);
+		expect(text).toContain("LookupEntry");
+		expect(text).not.toContain("  [");
+		await symbols.aborted;
+	});
+
+	test("an oversized /api/search answer is dropped without disabling enrichment", async () => {
+		const calls: string[] = [];
+		const { body, state } = streamingBody(1024 * 1024);
+		const fetch = (async (input: string | URL | Request) => {
+			const path = new URL(String(input)).pathname;
+			calls.push(path);
+			if (path === "/api/search" && calls.filter((p) => p === path).length === 1) {
+				return new Response(body, { headers: { "Content-Type": "application/json" } });
+			}
+			return Response.json(
+				loadCase(path === "/api/search" ? "api-search-sym" : "search-sym").response.body,
+			);
+		}) as typeof globalThis.fetch;
+		const { client } = testDeps(fetch);
+		const input = searchSchema.parse({ query: "sym:lookup", contextLines: 0 });
+		const go = () => executeSearch(client, input, { signal: new AbortController().signal });
+
+		expect((await go()).text).not.toContain("  [");
+		expect(state.cancelled).toBe(true);
+		expect(state.pulled).toBeLessThan(10);
+		expect((await go()).text).toContain("[func LookupEntry");
 	});
 
 	test("a failing /search still fails the tool and cancels the enrichment", async () => {
