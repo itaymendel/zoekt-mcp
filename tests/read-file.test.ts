@@ -94,6 +94,9 @@ describe("read_file output", () => {
 		const last = rows(text).length;
 		expect(last).toBeLessThan(200);
 		expect(text).toContain(`character output limit was reached after line ${last}`);
+		expect(text).toEndWith(
+			`\n\n---\nTruncated: the 40,000-character output limit was reached after line ${last} (lines 1-${last} of 200). Continue with startLine=${last + 1}.`,
+		);
 		expect(text).toEndWith(`Continue with startLine=${last + 1}.`);
 	});
 

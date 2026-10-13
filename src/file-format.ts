@@ -88,7 +88,8 @@ export function buildFileContent(
 
 /**
  * The text shown to the model, in the layout of search output: `# repo`, `## path  (N lines)`,
- * numbered rows, then a blank line, `---` and the footer (or a plain message when there are no rows).
+ * numbered rows, then a blank line, `---` and the footer. The empty-file and past-end messages
+ * (no rows) follow the same `\n---\n` footer shape.
  */
 export function formatFileContent(file: FileContent, { clamped = false } = {}): string {
 	const { totalLines: total } = file;
@@ -114,7 +115,7 @@ function footer(file: FileContent, count: string, atLeast: string): string {
 		case "window":
 			return `Truncated: showing ${shown}. Continue with startLine=${file.nextStartLine}.`;
 		case "chars":
-			return `Truncated: the ${MAX_OUTPUT_CHARS.toLocaleString("en-US")}-character output limit was reached after line ${file.endLine} (showing ${shown}). Continue with startLine=${file.nextStartLine}.`;
+			return `Truncated: the ${MAX_OUTPUT_CHARS.toLocaleString("en-US")}-character output limit was reached after line ${file.endLine} (${shown}). Continue with startLine=${file.nextStartLine}.`;
 		case "fetchCap":
 			return `Truncated: read stopped at the ${MAX_FETCH_BYTES / (1024 * 1024)} MiB fetch limit after line ${file.endLine}; later lines are not available.`;
 		default:
