@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING:** `search` output is rewritten. Results are grouped as `# <repo>` then `## <path>` (was `## <repo>/<path>`); rows are `N:text` for matches and `N-text` for context (was `> N: text`); `--` separates non-adjacent groups; indentation is kept and a line with several matches prints once instead of as several garbled rows. `Language:`, `Branches: HEAD` and the `Stats:` line are removed; branches appear only when they differ between files, and the footer after `---` gives file and match totals or says what was truncated. Migration: parse rows with `^(\d+)([:-])`; pass `# repo` and `## path` as-is to `file_content`.
+- **BREAKING:** `search` parameter `limit` is replaced by `maxFiles` (1-100, default 20; `limit` was default 30). New `maxMatchesPerFile` (1-50, default 5) and `contextLines` now defaults to 2 (was 3). `limit` is no longer accepted (it is ignored). `query` must not be empty.
+- `search` output is bounded to about 20,000 characters (the first file is always shown), and the footer reports exactly how many files were left out and why ("showing 3 of 8 files", "of at least N" when Zoekt skipped files or shards).
 - **BREAKING:** `list_repos` now works (it always failed before). `filter` is an unanchored, case-insensitive regex on the repository name (prefix with `(?-i)` for case-sensitive); new `limit` (1-200, default 50) and `offset` parameters; output is one line per repository (`name  branch@sha7, ...  N files  size  indexed date`) sorted by name, with a paging footer.
 - Tool errors now include Zoekt's error text (query parse errors, HTTP failures, unexpected responses) instead of "418 I'm a teapot"; long bodies are truncated at 500 characters.
 - Clear error when Zoekt is unreachable (`Cannot reach Zoekt at <URL> (ECONNREFUSED)`) or too slow (`Zoekt request timed out after <ms>ms`); client cancellation now aborts the Zoekt request.
@@ -36,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `search` honours `contextLines` (context lines were fetched but never shown), no longer strips indentation, and no longer reports the duration in the wrong unit (it was nanoseconds divided by 1000 and labelled ms; the line is removed).
 - A `ZOEKT_URL` with credentials no longer fails on Node.
 - Search no longer fails on `null` arrays/fields in Zoekt's JSON (`FileMatches`, `Fragments`, `Repos`, `Metadata`, missing `Language`, `Stats`, `RepoURLs`); context lines (`Before`/`After`) are no longer stripped from the parsed response.
 - A repo-only `search` query (only `r:` filters) now reports that Zoekt answered with a repository listing instead of failing with a schema error.
