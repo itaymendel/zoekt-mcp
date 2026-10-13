@@ -128,6 +128,55 @@ export interface SearchOptions {
 	contextLines?: number;
 }
 
+/** A displayed line of a search hit: a matching line (`match`) or a context line. */
+export interface SearchLine {
+	/** 1-based line number. */
+	n: number;
+	/** Line text without the trailing newline; indentation preserved. */
+	text: string;
+	match: boolean;
+	/** `[start, end)` offsets of the matched fragments within `text` (match lines only). */
+	ranges?: Array<[number, number]>;
+}
+
+export interface SearchFile {
+	repo: string;
+	path: string;
+	branches: string[];
+	language?: string;
+	/** The file's path itself matched (Zoekt reports LineNum 0). */
+	filenameMatch: boolean;
+	/** Matching lines plus context lines, sorted by `n`. */
+	lines: SearchLine[];
+	/** Matching lines dropped by `maxMatchesPerFile` and not shown as context either. */
+	hiddenMatchLines: number;
+}
+
+export type TruncationReason = "maxFiles" | "maxMatchesPerFile" | "outputBudget";
+
+/** Normalized, bounded view of a Zoekt search answer; what the text renderer consumes. */
+export interface SearchModel {
+	query: string;
+	files: SearchFile[];
+	totals: {
+		/** Zoekt's `FileCount`: files matched before the `num` cap. */
+		files: number;
+		/** Zoekt skipped files or shards, so `files` is a lower bound. */
+		filesIsLowerBound: boolean;
+		matches: number;
+	};
+	truncated: boolean;
+	truncation: {
+		reasons: TruncationReason[];
+		/** Matched files beyond the ones in `files` because of `maxFiles`. */
+		moreFiles: number;
+		/** Matching lines hidden by `maxMatchesPerFile` in the shown files. */
+		hiddenMatchLines: number;
+		filesOmittedByBudget: number;
+	};
+	durationMs: number;
+}
+
 export interface ListReposOptions {
 	num?: number;
 }
