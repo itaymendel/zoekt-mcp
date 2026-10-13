@@ -179,7 +179,7 @@ export class ConfigError extends Error {
 }
 
 /** `localhost`, 127.0.0.0/8 and ::1 (bracketed or not). */
-export function isLoopbackHost(host: string): boolean {
+function isLoopbackHost(host: string): boolean {
 	const h = host.trim().toLowerCase();
 	return h === "localhost" || h === "::1" || h === "[::1]" || /^127(\.\d{1,3}){3}$/.test(h);
 }

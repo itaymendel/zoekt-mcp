@@ -42,20 +42,13 @@ describe("tolerant schemas", () => {
 		expect(match?.After).toBe("");
 	});
 
-	test("Metadata: null", () => {
-		const out = parse({ repos: { Repos: [{ Name: "r", Metadata: null }] } });
-		expect(out.repos?.Repos[0]?.Metadata).toEqual({});
-	});
-
 	test("Repos: null", () => {
 		expect(parse({ repos: { Repos: null, Stats: { Repos: 0 } } }).repos?.Repos).toEqual([]);
 	});
 
-	test("missing RepoURLs, Stats and Language", () => {
+	test("missing Stats", () => {
 		const out = parse({ result: { FileMatches: [{ FileName: "a", Repo: "r" }] } });
-		expect(out.result?.RepoURLs).toEqual({});
 		expect(out.result?.Stats).toBeUndefined();
-		expect(out.result?.FileMatches[0]?.Language).toBe("");
 	});
 
 	test("Fragments: null", () => {

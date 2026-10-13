@@ -36,7 +36,6 @@ function repoEntry(name: string, extra: Record<string, unknown> = {}) {
 		Files: 3,
 		Metadata: null,
 		Size: 2048,
-		MemorySize: 1,
 		...extra,
 	};
 }
@@ -239,7 +238,7 @@ describe("list_repos paging", () => {
 });
 
 describe("normalizeRepoList and formatting", () => {
-	test("no nulls; zero IndexTime omitted; empty URL/metadata omitted", () => {
+	test("no nulls; zero IndexTime omitted; no sentinels", () => {
 		const wire = RepoListWireSchema.parse(
 			(loadCase("list-all").response.body as { repos: unknown }).repos,
 		);
@@ -262,16 +261,12 @@ describe("normalizeRepoList and formatting", () => {
 
 	test("Go's zero time is omitted; a real date is shown as YYYY-MM-DD", () => {
 		const wire = RepoListWireSchema.parse({
-			Repos: [
-				repoEntry("zero", { IndexTime: "0001-01-01T00:00:00Z" }),
-				repoEntry("real", { Metadata: { team: "x" } }),
-			],
+			Repos: [repoEntry("zero", { IndexTime: "0001-01-01T00:00:00Z" }), repoEntry("real")],
 		});
 		const list = normalizeRepoList(wire, { limit: 50, offset: 0 });
 
 		expect(list.repos[0]).not.toHaveProperty("indexedAt");
 		expect(list.repos[1]?.indexedAt).toBe("2025-03-04T05:06:07Z");
-		expect(list.repos[1]?.metadata).toEqual({ team: "x" });
 		expect(formatRepoList(list)).toContain(
 			"real  HEAD@aaaaaaa  3 files  2.0 KiB  indexed 2025-03-04",
 		);

@@ -16,7 +16,6 @@ import {
 	ZoektFileNotIndexedError,
 } from "../zoekt/errors.js";
 import { exactRepoAtom } from "../zoekt/query.js";
-import type { FileContent } from "../zoekt/types.js";
 import type { ToolContext, ToolResult } from "./result.js";
 
 export const readFileSchema = z.object({
@@ -68,11 +67,50 @@ interface PrintFailure {
 	indexedBranches(): Promise<string[] | undefined>;
 }
 
+export const readFileOutputSchema = z.object({
+	repo: z.string(),
+	path: z.string().describe("Normalized path (leading '/' or './' removed)"),
+	branch: z.string().optional().describe("The branch as requested; absent for the default branch"),
+	startLine: z.number().int().describe("First line requested (1-based)"),
+	endLine: z
+		.number()
+		.int()
+		.describe(
+			"Last line returned; startLine - 1 when no line is returned (empty file or past the end)",
+		),
+	totalLines: z.number().int().describe("Lines in the file"),
+	totalLinesIsLowerBound: z
+		.boolean()
+		.describe("The read stopped at the fetch cap, so totalLines is a lower bound"),
+	lines: z
+		.array(
+			z.object({
+				line: z.number().int().describe("1-based line number"),
+				text: z.string().describe("Line text without the line ending; over-long lines are clipped"),
+			}),
+		)
+		.describe("The returned window in ascending order"),
+	truncated: z.boolean().describe("The file continues beyond `lines`"),
+	truncationReason: z
+		.enum(["window", "chars", "fetchCap"])
+		.optional()
+		.describe(
+			"window: endLine reached; chars: output character limit; fetchCap: file larger than the read limit (nothing further is readable)",
+		),
+	nextStartLine: z
+		.number()
+		.int()
+		.optional()
+		.describe("startLine to continue from; absent when nothing more can be read"),
+});
+
+export type ReadFileOutput = z.infer<typeof readFileOutputSchema>;
+
 export async function executeReadFile(
 	client: ZoektClient,
 	input: ReadFileInput,
 	ctx: ToolContext,
-): Promise<ToolResult<FileContent>> {
+): Promise<ToolResult<ReadFileOutput>> {
 	const { repo, branch } = input;
 	const path = cleanPath(input.path);
 	if (path === "") throw new Error("path must not be empty.");
@@ -109,7 +147,7 @@ export async function executeReadFile(
 	const file = buildFileContent(printed.bytes, printed.truncated, { repo, path, branch }, range);
 	return {
 		text: formatFileContent(file, { clamped: range.clamped }),
-		data: file,
+		structured: file,
 		summary: {
 			repo,
 			path,

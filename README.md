@@ -85,6 +85,10 @@ The HTTP transport is stateless Streamable HTTP on `POST /mcp`. `GET /healthz` r
 
 All three are read-only and closed-world; clients that honour tool annotations can run them without confirmation. The server also sends short `instructions` describing the `list_repos` -> `search` -> `read_file` workflow.
 
+### Structured output
+
+The text block is the primary form, written for the model. Each tool also declares an `outputSchema` and returns `structuredContent` mirroring it for programmatic clients: `search` returns `files[].lines[]` (`line`, `text`, `isMatch`) with totals and a `truncation` summary, `list_repos` returns `repos[]` with `total`, `nextOffset` and `truncated`, `read_file` returns `lines[]` (`line`, `text`) with `nextStartLine` and `truncationReason`. It never contains more than the text shows (no repository URLs or metadata). Errors return text only.
+
 ### Query cheat sheet
 
 Copied from the `search` tool description, which is what the agent sees.

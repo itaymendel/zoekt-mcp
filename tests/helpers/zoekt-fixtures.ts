@@ -39,7 +39,7 @@ export function readRepoFile(dir: string, path: string): string {
 	return readFileSync(new URL(`repos/${dir}/${path}`, FIXTURES_URL), "utf8");
 }
 
-export function caseToResponse(name: string): Response {
+function caseToResponse(name: string): Response {
 	const { response } = loadCase(name);
 	const text = response.body !== undefined ? JSON.stringify(response.body) : response.bodyText;
 	return new Response(text ?? "", {

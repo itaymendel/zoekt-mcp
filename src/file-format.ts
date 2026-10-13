@@ -52,19 +52,20 @@ export function buildFileContent(
 	const lines = splitLines(text);
 	const totalLines = lines.length;
 
-	const rows: string[] = [];
+	const returned: FileContent["lines"] = [];
 	let chars = 0;
 	let charCut = false;
 	for (let n = startLine; n <= Math.min(wantedEnd, totalLines); n++) {
-		const row = `${n}:${clipLineTail(stripEol(lines[n - 1] ?? ""), MAX_LINE_LENGTH)}`;
-		if (rows.length > 0 && chars + row.length + 1 > MAX_OUTPUT_CHARS) {
+		const text = clipLineTail(stripEol(lines[n - 1] ?? ""), MAX_LINE_LENGTH);
+		const rowLength = `${n}:${text}`.length + 1;
+		if (returned.length > 0 && chars + rowLength > MAX_OUTPUT_CHARS) {
 			charCut = true;
 			break;
 		}
-		rows.push(row);
-		chars += row.length + 1;
+		returned.push({ line: n, text });
+		chars += rowLength;
 	}
-	const endLine = startLine + rows.length - 1;
+	const endLine = startLine + returned.length - 1;
 
 	let truncationReason: FileContent["truncationReason"];
 	if (charCut) truncationReason = "chars";
@@ -77,7 +78,7 @@ export function buildFileContent(
 		endLine,
 		totalLines,
 		totalLinesIsLowerBound: fetchTruncated,
-		content: rows.join("\n"),
+		lines: returned,
 		truncated: truncationReason !== undefined,
 		...(truncationReason ? { truncationReason } : {}),
 		...(truncationReason === "chars" || truncationReason === "window"
@@ -99,13 +100,13 @@ export function formatFileContent(file: FileContent, { clamped = false } = {}): 
 	if (clamped) {
 		out.push(`Note: the requested range was clamped to ${MAX_WINDOW_LINES} lines per call.`);
 	}
-	if (file.content !== "") out.push(file.content);
+	for (const { line, text } of file.lines) out.push(`${line}:${text}`);
 	out.push("", "---", footer(file, count, atLeast));
 	return out.join("\n");
 }
 
 function footer(file: FileContent, count: string, atLeast: string): string {
-	if (file.content === "") {
+	if (file.lines.length === 0) {
 		return file.totalLines === 0
 			? "The file is empty."
 			: `startLine=${file.startLine} is past the end of the file (${count}).`;

@@ -707,16 +707,16 @@ describe("executeSearch", () => {
 					result: { Stats: { Duration: 12_345_678, FileCount: 0, MatchCount: 0 }, FileMatches: [] },
 				}),
 		});
-		const { text, data } = await result;
+		const { text, summary } = await result;
 
-		expect(data?.durationMs).toBe(12);
+		expect(summary?.durationMs).toBe(12);
 		expect(text).not.toMatch(/ms\)|Stats:/);
 		expect(text).toBe("No matches for `q`.");
 	});
 
-	test("the model rides along as data", async () => {
-		const { data } = await run({ "/search": "search-file-only" }).result;
+	test("the structured projection rides along", async () => {
+		const { structured } = await run({ "/search": "search-file-only" }).result;
 
-		expect(data?.files[0]).toMatchObject({ path: "docs/notes.txt", filenameMatch: true });
+		expect(structured.files[0]).toMatchObject({ path: "docs/notes.txt", filenameMatch: true });
 	});
 });
