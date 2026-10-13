@@ -34,8 +34,7 @@ function detectTransport(): Transport {
 }
 
 function getEnv(key: string): string | undefined {
-	// Support both Bun.env and process.env for Node.js compatibility
-	return typeof Bun !== "undefined" ? Bun.env[key] : process.env[key];
+	return process.env[key];
 }
 
 export function loadConfig(cliArgs: CliArgs = {}): Config {

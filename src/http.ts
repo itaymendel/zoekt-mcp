@@ -1,74 +1,37 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import { toNodeHandler } from "@modelcontextprotocol/node";
+import { createMcpHandler, type McpServer } from "@modelcontextprotocol/server";
 import pkg from "../package.json";
 import type { Logger } from "./logger.js";
 import { getErrorMessage } from "./utils.js";
 
 export interface HttpServerOptions {
-	/** Called once per SSE session; an McpServer can only be connected to one transport. */
+	/** Called once per request; must not own long-lived state (build shared deps outside). */
 	createServer: () => McpServer;
 	host: string;
 	port: number;
 	logger: Logger;
+	/** After this long, close() drops connections that are still open (default 5000). */
+	shutdownTimeoutMs?: number;
 }
 
-const CORS_HEADERS: Record<string, string> = {
-	"Access-Control-Allow-Origin": "*",
-	"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-	"Access-Control-Allow-Headers": "Content-Type",
-};
-
-const SESSION_TTL_MS = 5 * 60 * 1000;
-
-interface SSESession {
-	res: ServerResponse;
-	closed: boolean;
+export interface HttpServer {
+	/** Resolves the actually bound address (supports port 0). */
+	start(): Promise<{ host: string; port: number }>;
+	close(): Promise<void>;
 }
 
-interface SessionEntry {
-	server: McpServer;
-	transport: NodeSSETransport;
-	session: SSESession;
-	lastActivity: number;
-}
+type Route = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
 
-class NodeSSETransport implements Transport {
-	private session: SSESession | null = null;
-
-	onclose?: () => void;
-	onerror?: (error: Error) => void;
-	onmessage?: (message: JSONRPCMessage) => void;
-
-	setSession(session: SSESession): void {
-		this.session = session;
-	}
-
-	async start(): Promise<void> {}
-
-	async close(): Promise<void> {
-		if (this.session && !this.session.closed) {
-			this.session.closed = true;
-			try {
-				this.session.res.end();
-			} catch {}
-		}
-		this.onclose?.();
-	}
-
-	async send(message: JSONRPCMessage): Promise<void> {
-		if (!this.session || this.session.closed) {
-			throw new Error("Session not connected");
-		}
-
-		const event = `event: message\ndata: ${JSON.stringify(message)}\n\n`;
-		this.session.res.write(event);
-	}
-
-	handleIncomingMessage(message: JSONRPCMessage): void {
-		this.onmessage?.(message);
-	}
+function sendJson(
+	res: ServerResponse,
+	status: number,
+	body: unknown,
+	headers: Record<string, string> = {},
+): void {
+	res.writeHead(status, { "Content-Type": "application/json", ...headers });
+	res.end(JSON.stringify(body));
 }
 
 export function createHttpServer({
@@ -76,222 +39,63 @@ export function createHttpServer({
 	host,
 	port,
 	logger,
-}: HttpServerOptions): {
-	start: () => Promise<void>;
-	stop: () => Promise<void>;
-} {
-	const sessions = new Map<string, SessionEntry>();
-	let httpServer: Server | undefined;
+	shutdownTimeoutMs = 5000,
+}: HttpServerOptions): HttpServer {
+	const onerror = (error: Error) => logger.error({ error: getErrorMessage(error) }, "MCP error");
+	const handler = createMcpHandler(createMcpServer, { onerror });
+	const mcp = toNodeHandler(handler, { onerror });
 
-	const onSignal = (): void => {
-		void stop();
-	};
-
-	async function stop(): Promise<void> {
-		process.off("SIGINT", onSignal);
-		process.off("SIGTERM", onSignal);
-		clearInterval(cleanupInterval);
-		const server = httpServer;
-		if (!server) return;
-		httpServer = undefined;
-
-		logger.info("Shutting down HTTP server");
-		for (const [sessionId, entry] of sessions) {
-			closeServer(entry.server, sessionId, logger);
-		}
-		await new Promise<void>((resolve) => {
-			server.close(() => resolve());
+	const removedSse: Route = (_req, res) =>
+		sendJson(res, 410, {
+			error: "HTTP+SSE was removed in 1.0.0; use Streamable HTTP at POST /mcp",
 		});
-	}
 
-	const cleanupInterval = setInterval(() => {
-		const now = Date.now();
-		for (const [sessionId, entry] of sessions) {
-			if (now - entry.lastActivity > SESSION_TTL_MS) {
-				logger.info({ sessionId }, "Cleaning up stale session");
-				closeServer(entry.server, sessionId, logger);
-				sessions.delete(sessionId);
-			}
+	// Process liveness only; never touches Zoekt.
+	const healthz: Route = (req, res) =>
+		req.method === "GET" || req.method === "HEAD"
+			? sendJson(res, 200, { status: "ok", name: pkg.name, version: pkg.version })
+			: sendJson(res, 405, { error: "Method Not Allowed" }, { Allow: "GET, HEAD" });
+
+	const routes = new Map<string, Route>([
+		["/mcp", mcp],
+		["/healthz", healthz],
+		["/sse", removedSse],
+		["/messages", removedSse],
+	]);
+
+	const server = createServer(async (req, res) => {
+		// Never derive anything from the Host header; the base is a placeholder.
+		const { pathname } = new URL(req.url ?? "/", "http://placeholder");
+		logger.debug({ method: req.method, path: pathname }, "HTTP request");
+		try {
+			const route = routes.get(pathname);
+			if (route) await route(req, res);
+			else sendJson(res, 404, { error: "Not Found" });
+		} catch (error) {
+			logger.error({ error: getErrorMessage(error) }, "HTTP request failed");
+			if (!res.headersSent) sendJson(res, 500, { error: "Internal Server Error" });
+			else res.destroy();
 		}
-	}, SESSION_TTL_MS / 2);
-
-	function handleRequest(req: IncomingMessage, res: ServerResponse): void {
-		const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-		const path = url.pathname;
-		const method = req.method ?? "GET";
-
-		logger.debug({ method, path }, "HTTP request");
-
-		// Set CORS headers on all responses
-		for (const [key, value] of Object.entries(CORS_HEADERS)) {
-			res.setHeader(key, value);
-		}
-
-		if (method === "OPTIONS") {
-			res.writeHead(204);
-			res.end();
-			return;
-		}
-
-		switch (path) {
-			case "/":
-				jsonResponse(res, { name: pkg.name, version: pkg.version, status: "ok" });
-				break;
-
-			case "/health":
-				jsonResponse(res, { status: "ok" });
-				break;
-
-			case "/sse":
-				handleSSE(req, res, createMcpServer(), sessions, logger);
-				break;
-
-			case "/messages":
-				handleMessages(req, res, url, sessions, logger);
-				break;
-
-			default:
-				res.writeHead(404, { "Content-Type": "text/plain" });
-				res.end("Not Found");
-		}
-	}
+	});
 
 	return {
-		start: async () => {
-			return new Promise((resolve, reject) => {
-				const server = createServer(handleRequest);
-				httpServer = server;
-
-				server.on("error", (error) => {
-					logger.error({ error: getErrorMessage(error) }, "HTTP server error");
-					reject(error);
-				});
-
+		start: () =>
+			new Promise((resolve, reject) => {
+				server.once("error", reject);
 				server.listen(port, host, () => {
-					logger.info({ host, port, url: `http://${host}:${port}` }, "HTTP server started");
-					resolve();
+					server.off("error", reject);
+					const address = server.address() as AddressInfo;
+					logger.info({ host, port: address.port }, "HTTP server listening (POST /mcp)");
+					resolve({ host, port: address.port });
 				});
-
-				process.on("SIGINT", onSignal);
-				process.on("SIGTERM", onSignal);
-			});
+			}),
+		close: async () => {
+			await handler.close();
+			const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+			server.closeIdleConnections();
+			const timer = setTimeout(() => server.closeAllConnections(), shutdownTimeoutMs);
+			await closed;
+			clearTimeout(timer);
 		},
-		stop,
 	};
-}
-
-function closeServer(server: McpServer, sessionId: string, logger: Logger): void {
-	server.close().catch((error) => {
-		logger.warn({ sessionId, error: getErrorMessage(error) }, "Failed to close MCP server");
-	});
-}
-
-function jsonResponse(res: ServerResponse, data: unknown, status = 200): void {
-	res.writeHead(status, { "Content-Type": "application/json" });
-	res.end(JSON.stringify(data));
-}
-
-function handleSSE(
-	req: IncomingMessage,
-	res: ServerResponse,
-	server: McpServer,
-	sessions: Map<string, SessionEntry>,
-	logger: Logger,
-): void {
-	const sessionId = crypto.randomUUID();
-	const transport = new NodeSSETransport();
-
-	logger.info({ sessionId }, "SSE connection established");
-
-	// Set SSE headers
-	res.writeHead(200, {
-		"Content-Type": "text/event-stream",
-		"Cache-Control": "no-cache",
-		Connection: "keep-alive",
-		...CORS_HEADERS,
-	});
-
-	const session: SSESession = { res, closed: false };
-	transport.setSession(session);
-	sessions.set(sessionId, { server, transport, session, lastActivity: Date.now() });
-
-	// Send endpoint event
-	const endpoint = `/messages?sessionId=${sessionId}`;
-	res.write(`event: endpoint\ndata: ${JSON.stringify({ sessionId, messagesUrl: endpoint })}\n\n`);
-
-	// Connect MCP server to transport
-	server.connect(transport).catch((error) => {
-		logger.error({ sessionId, error: getErrorMessage(error) }, "Failed to connect transport");
-	});
-
-	// Handle client disconnect. Node emits "close" on res when the connection drops,
-	// Bun only on req, so listen to both and clean up once.
-	const onClose = () => {
-		// Delete first (idempotent) so sessions closed via another path don't linger until the TTL sweep.
-		sessions.delete(sessionId);
-		if (session.closed) return;
-		logger.info({ sessionId }, "SSE connection closed");
-		session.closed = true;
-		closeServer(server, sessionId, logger);
-	};
-	req.on("close", onClose);
-	res.on("close", onClose);
-}
-
-function handleMessages(
-	req: IncomingMessage,
-	res: ServerResponse,
-	url: URL,
-	sessions: Map<string, SessionEntry>,
-	logger: Logger,
-): void {
-	if (req.method !== "POST") {
-		res.writeHead(405, { "Content-Type": "text/plain" });
-		res.end("Method not allowed");
-		return;
-	}
-
-	const sessionId = url.searchParams.get("sessionId");
-
-	if (!sessionId) {
-		jsonResponse(res, { error: "Missing sessionId parameter" }, 400);
-		return;
-	}
-
-	const entry = sessions.get(sessionId);
-	if (!entry) {
-		jsonResponse(res, { error: "Session not found" }, 404);
-		return;
-	}
-
-	entry.lastActivity = Date.now();
-
-	// Collect request body
-	let body = "";
-	req.on("data", (chunk) => {
-		body += chunk.toString();
-	});
-
-	req.on("end", () => {
-		try {
-			const jsonMessage = JSON.parse(body) as JSONRPCMessage;
-			logger.debug(
-				{ sessionId, method: "method" in jsonMessage ? jsonMessage.method : undefined },
-				"Received MCP message",
-			);
-
-			entry.transport.handleIncomingMessage(jsonMessage);
-			jsonResponse(res, { status: "ok" });
-		} catch (error) {
-			const errorMsg = getErrorMessage(error);
-			logger.error({ sessionId, error: errorMsg }, "Failed to handle message");
-			jsonResponse(res, { error: errorMsg }, 500);
-		}
-	});
-
-	req.on("error", (error) => {
-		const errorMsg = getErrorMessage(error);
-		logger.error({ sessionId, error: errorMsg }, "Request error");
-		jsonResponse(res, { error: errorMsg }, 500);
-	});
 }

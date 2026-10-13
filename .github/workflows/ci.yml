@@ -79,6 +79,27 @@ jobs:
       - name: Build
         run: bun run build
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Package footprint
+        run: |
+          set -euo pipefail
+          npm pack --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/pack.json"
+          files=$(jq -r '.[0].files[].path' "$RUNNER_TEMP/pack.json" | LC_ALL=C sort | tr '\n' ' ')
+          expected="CHANGELOG.md LICENSE README.md dist/index.js package.json "
+          [ "$files" = "$expected" ] || { echo "unexpected tarball files: $files"; exit 1; }
+          tgz="$RUNNER_TEMP/$(jq -r '.[0].filename' "$RUNNER_TEMP/pack.json")"
+          mkdir "$RUNNER_TEMP/install"
+          cd "$RUNNER_TEMP/install"
+          npm init -y > /dev/null
+          npm install "$tgz" --ignore-scripts --no-audit --no-fund
+          count=$(npm ls --all --parseable | wc -l)
+          [ "$count" -eq 2 ] || { echo "expected 2 installed packages, got $count"; npm ls --all; exit 1; }
+          ./node_modules/.bin/zoekt-mcp --version
+          node "$GITHUB_WORKSPACE/scripts/smoke-stdio.mjs" --bin ./node_modules/.bin/zoekt-mcp
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -114,3 +135,6 @@ jobs:
 
       - name: Stdio smoke test
         run: node scripts/smoke-stdio.mjs --entry dist/index.js
+
+      - name: HTTP smoke test
+        run: node scripts/smoke-http.mjs --entry dist/index.js

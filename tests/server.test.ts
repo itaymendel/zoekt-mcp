@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pino from "pino";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createMcpServer } from "../src/server.js";
+import { testDeps } from "./helpers/test-deps.js";
 
 const originalFetch = globalThis.fetch;
 let requestedUrls: string[] = [];
@@ -17,11 +16,7 @@ beforeEach(async () => {
 		});
 	}) as typeof fetch;
 
-	const server = createMcpServer({
-		zoektUrl: "http://zoekt.test",
-		zoektTimeoutMs: 5000,
-		logger: pino({ level: "silent" }),
-	});
+	const server = createMcpServer(testDeps());
 	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 	client = new Client({ name: "test-client", version: "0.0.0" });
 	await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -81,6 +76,17 @@ describe("tool calls", () => {
 		});
 
 		expect(result.isError).toBe(true);
+		expect(requestedUrls).toHaveLength(0);
+	});
+});
+
+describe("createMcpServer", () => {
+	test("createMcpServer is a pure factory", () => {
+		const shared = testDeps();
+		const a = createMcpServer(shared);
+		const b = createMcpServer(shared);
+
+		expect(a).not.toBe(b);
 		expect(requestedUrls).toHaveLength(0);
 	});
 });

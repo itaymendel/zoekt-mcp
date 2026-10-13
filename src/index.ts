@@ -1,15 +1,22 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import pkg from "../package.json";
 import type { Config } from "./config.js";
 import { loadConfig } from "./config.js";
 import { createHttpServer } from "./http.js";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
-import { createMcpServer } from "./server.js";
+import { createServerFactory } from "./server.js";
 import { getErrorMessage } from "./utils.js";
+import { ZoektClient } from "./zoekt/client.js";
+
+// Best-effort: only reachable on a Node old enough to still parse and load the imports above.
+if (Number(process.versions.node.split(".")[0]) < 22) {
+	console.error("zoekt-mcp requires Node.js >= 22");
+	process.exit(2);
+}
 
 function printHelp(): void {
 	console.log(`
@@ -101,15 +108,16 @@ async function main(): Promise<void> {
 			"Starting zoekt-mcp",
 		);
 
-		const createServer = () =>
-			createMcpServer({
-				zoektUrl: config.zoektUrl,
-				zoektTimeoutMs: config.zoektTimeoutMs,
-				logger,
-			});
+		// Built once; the factory below runs per request (HTTP) or per connection (stdio).
+		const client = new ZoektClient({
+			baseUrl: config.zoektUrl,
+			timeoutMs: config.zoektTimeoutMs,
+			logger,
+		});
+		const createServer = createServerFactory({ client, logger });
 
 		if (config.mcpTransport === "stdio") {
-			await startStdioTransport(createServer(), logger);
+			await startStdioTransport(createServer, logger);
 		} else {
 			await startHttpTransport(createServer, config, logger);
 		}
@@ -119,21 +127,24 @@ async function main(): Promise<void> {
 	}
 }
 
-function setupSignalHandlers(logger: Logger): void {
+function onShutdown(close: () => Promise<void>, logger: Logger): void {
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
-		process.on(signal, () => {
+		process.once(signal, () => {
 			logger.info(`Received ${signal}, shutting down`);
-			process.exit(0);
+			close()
+				.catch((error) => logger.error({ error: getErrorMessage(error) }, "Shutdown failed"))
+				.finally(() => process.exit(0));
 		});
 	}
 }
 
-async function startStdioTransport(server: McpServer, logger: Logger): Promise<void> {
+async function startStdioTransport(createServer: () => McpServer, logger: Logger): Promise<void> {
 	logger.info("Starting stdio transport");
-	setupSignalHandlers(logger);
 
-	const transport = new StdioServerTransport();
-	await server.connect(transport);
+	const handle = serveStdio(createServer, {
+		onerror: (error) => logger.error({ error: getErrorMessage(error) }, "stdio error"),
+	});
+	onShutdown(() => handle.close(), logger);
 
 	logger.info("Connected via stdio");
 }
@@ -151,9 +162,7 @@ async function startHttpTransport(
 	});
 
 	await httpServer.start();
-
-	// Keep process running
-	await new Promise(() => {});
+	onShutdown(() => httpServer.close(), logger);
 }
 
 main();

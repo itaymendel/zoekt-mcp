@@ -1,105 +1,171 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createServer as createNetServer } from "node:net";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import pino from "pino";
 import { createHttpServer } from "../src/http.js";
-import type { Logger } from "../src/logger.js";
+import { startTestServer, type TestServer } from "./helpers/http-harness.js";
 
-async function getFreePort(): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const srv = createNetServer();
-		srv.once("error", reject);
-		srv.listen(0, "127.0.0.1", () => {
-			const { port } = srv.address() as { port: number };
-			srv.close(() => resolve(port));
-		});
-	});
+const servers: TestServer[] = [];
+
+async function start(): Promise<TestServer> {
+	const server = await startTestServer();
+	servers.push(server);
+	return server;
 }
 
-/** Polls until the condition holds, failing after a bounded timeout. */
-async function waitFor(
-	condition: () => boolean | Promise<boolean>,
-	timeoutMs = 2000,
-): Promise<void> {
-	const deadline = Date.now() + timeoutMs;
-	while (!(await condition())) {
-		if (Date.now() > deadline) throw new Error("Timed out waiting for condition");
-		await Bun.sleep(5);
+afterEach(async () => {
+	for (const server of servers.splice(0)) await server.close();
+});
+
+const MCP_HEADERS = {
+	"content-type": "application/json",
+	accept: "application/json, text/event-stream",
+};
+
+const postMcp = (baseUrl: string, body: string, extraHeaders: Record<string, string> = {}) =>
+	fetch(`${baseUrl}/mcp`, {
+		method: "POST",
+		headers: { ...MCP_HEADERS, ...extraHeaders },
+		body,
+	});
+
+/** Connects a v2 client, lists tools, calls search, and always closes the client. */
+async function roundTrip(baseUrl: string, options?: ConstructorParameters<typeof Client>[1]) {
+	const client = new Client({ name: "test-client", version: "0.0.0" }, options);
+	try {
+		await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`)));
+		const { tools } = await client.listTools();
+		const result = await client.callTool({ name: "search", arguments: { query: "handleRequest" } });
+		return { tools, result, serverName: client.getServerVersion()?.name };
+	} finally {
+		await client.close();
 	}
 }
 
-const stops: Array<() => Promise<void>> = [];
-
-afterEach(async () => {
-	for (const stop of stops.splice(0)) await stop();
-});
-
-async function startServerWithSession() {
-	const messages: string[] = [];
-	const record = (_obj: unknown, msg?: string) => {
-		if (msg) messages.push(msg);
-	};
-	const logger = {
-		info: record,
-		debug: record,
-		warn: record,
-		error: record,
-	} as unknown as Logger;
-
-	const servers: McpServer[] = [];
-	const port = await getFreePort();
-	const http = createHttpServer({
-		createServer: () => {
-			const server = new McpServer({ name: "test", version: "0.0.0" });
-			servers.push(server);
-			return server;
-		},
-		host: "127.0.0.1",
-		port,
-		logger,
+const initializeBody = (protocolVersion = "2025-06-18") =>
+	JSON.stringify({
+		jsonrpc: "2.0",
+		id: 1,
+		method: "initialize",
+		params: { protocolVersion, capabilities: {}, clientInfo: { name: "test", version: "0" } },
 	});
-	stops.push(http.stop);
-	await http.start();
 
-	const base = `http://127.0.0.1:${port}`;
-	const controller = new AbortController();
-	const res = await fetch(`${base}/sse`, { signal: controller.signal });
-	const reader = res.body?.getReader();
-	const first = await reader?.read();
-	const text = new TextDecoder().decode(first?.value);
-	const sessionId = /"sessionId":"([^"]+)"/.exec(text)?.[1];
-	expect(sessionId).toBeDefined();
+describe("Streamable HTTP on /mcp", () => {
+	test("lists tools and calls search with a v2 client", async () => {
+		const { baseUrl, zoektFetch } = await start();
+		const { tools, result } = await roundTrip(baseUrl);
 
-	const post = () =>
-		fetch(`${base}/messages?sessionId=${sessionId}`, {
-			method: "POST",
-			body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+		expect(tools.map((t) => t.name).sort()).toEqual(["file_content", "list_repos", "search"]);
+		expect(result.isError).toBeFalsy();
+		expect(zoektFetch.requests[0]?.searchParams.get("q")).toBe("handleRequest");
+	});
+
+	test("serves the 2026-07-28 era through createMcpHandler", async () => {
+		const { baseUrl } = await start();
+		const { tools, result, serverName } = await roundTrip(baseUrl, {
+			versionNegotiation: { mode: "auto" },
 		});
 
-	return { messages, servers, controller, post };
-}
-
-describe("HTTP SSE session cleanup", () => {
-	test("logs close once and drops the session on client disconnect", async () => {
-		const { messages, controller, post } = await startServerWithSession();
-		expect((await post()).status).toBe(200);
-
-		controller.abort();
-		await waitFor(async () => (await post()).status === 404);
-
-		expect(messages.filter((m) => m === "SSE connection closed")).toHaveLength(1);
-		expect(messages).not.toContain("Failed to close MCP server");
+		expect(serverName).toBe("zoekt-mcp");
+		expect(tools).toHaveLength(3);
+		expect(result.isError).toBeFalsy();
 	});
 
-	test("drops the session when the MCP server is closed via another path", async () => {
-		const { messages, servers, controller, post } = await startServerWithSession();
-		expect((await post()).status).toBe(200);
+	test("2025 initialize POST returns serverInfo", async () => {
+		const { baseUrl } = await start();
+		const res = await postMcp(baseUrl, initializeBody());
 
-		// Closes the transport (ending the response) without going through the disconnect handler,
-		// so the handler sees session.closed already set and must still remove the session.
-		await servers[0]?.close();
-		await waitFor(async () => (await post()).status === 404);
+		expect(res.status).toBe(200);
+		expect(await res.text()).toContain('"serverInfo":{"name":"zoekt-mcp"');
+	});
 
-		expect(messages).not.toContain("Failed to close MCP server");
-		controller.abort();
+	test("malformed JSON on /mcp is a 4xx", async () => {
+		const { baseUrl } = await start();
+		const res = await postMcp(baseUrl, "{not json");
+
+		expect(res.status).toBeGreaterThanOrEqual(400);
+		expect(res.status).toBeLessThan(500);
+	});
+});
+
+describe("routes", () => {
+	test("/sse and /messages return 410", async () => {
+		const { baseUrl } = await start();
+		for (const [method, path] of [
+			["GET", "/sse"],
+			["POST", "/messages?sessionId=x"],
+			["POST", "/sse"],
+		] as const) {
+			const res = await fetch(`${baseUrl}${path}`, { method });
+			expect(res.status).toBe(410);
+			expect(((await res.json()) as { error: string }).error).toContain("POST /mcp");
+		}
+	});
+
+	test("/health and / return 404", async () => {
+		const { baseUrl } = await start();
+		expect((await fetch(`${baseUrl}/health`)).status).toBe(404);
+		expect((await fetch(`${baseUrl}/`)).status).toBe(404);
+		expect((await fetch(`${baseUrl}/nope`)).status).toBe(404);
+	});
+
+	test("/healthz returns 200 and 405 on POST", async () => {
+		const { baseUrl, zoektFetch } = await start();
+		const res = await fetch(`${baseUrl}/healthz`);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({ status: "ok", name: "zoekt-mcp" });
+		expect((await fetch(`${baseUrl}/healthz`, { method: "HEAD" })).status).toBe(200);
+
+		const post = await fetch(`${baseUrl}/healthz`, { method: "POST" });
+		expect(post.status).toBe(405);
+		expect(post.headers.get("allow")).toBe("GET, HEAD");
+		expect(zoektFetch.requests).toHaveLength(0);
+	});
+
+	test("no response has access-control-allow-origin", async () => {
+		const { baseUrl } = await start();
+		const headers = { origin: "http://example.com" };
+		const responses = await Promise.all([
+			postMcp(baseUrl, initializeBody(), headers),
+			fetch(`${baseUrl}/mcp`, { method: "OPTIONS", headers }),
+			fetch(`${baseUrl}/healthz`, { headers }),
+			fetch(`${baseUrl}/sse`, { headers }),
+			fetch(`${baseUrl}/health`, { headers }),
+		]);
+
+		for (const res of responses) {
+			expect(res.headers.get("access-control-allow-origin")).toBeNull();
+		}
+	});
+});
+
+describe("lifecycle", () => {
+	test("start() reports bound port for port 0", async () => {
+		const { port, baseUrl } = await start();
+
+		expect(port).toBeGreaterThan(0);
+		expect(baseUrl).toBe(`http://127.0.0.1:${port}`);
+	});
+
+	test("close() resolves and port refuses connections", async () => {
+		const server = await start();
+		expect((await fetch(`${server.baseUrl}/healthz`)).status).toBe(200);
+
+		await server.close();
+
+		await expect(fetch(`${server.baseUrl}/healthz`)).rejects.toThrow();
+	});
+
+	test("start() rejects when the port is taken", async () => {
+		const first = await start();
+		const second = createHttpServer({
+			createServer: () => {
+				throw new Error("unused");
+			},
+			host: "127.0.0.1",
+			port: first.port,
+			logger: pino({ level: "silent" }),
+		});
+
+		await expect(second.start()).rejects.toThrow();
 	});
 });

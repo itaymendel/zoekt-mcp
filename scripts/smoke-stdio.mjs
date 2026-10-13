@@ -6,38 +6,21 @@
 //
 // Spawns the server over stdio, runs initialize -> initialized -> tools/list and checks the
 // responses. Exits 0 and prints "OK node vX tools=a,b,c" on success, 1 with a message otherwise.
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import {
+	abort,
+	assertTools,
+	DUMMY_ZOEKT_URL,
+	expectCleanExit,
+	fail,
+	pkg,
+	spawnServer,
+} from "./lib/smoke-common.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
-const expectedTools = JSON.parse(readFileSync(join(here, "expected-tools.json"), "utf8"));
-
-const GLOBAL_TIMEOUT_MS = 20_000;
 const EXIT_TIMEOUT_MS = 5_000;
 const PROTOCOL_VERSION = "2025-11-25";
-// Dummy upstream: never contacted during initialize/tools/list.
-const DUMMY_ZOEKT_URL = "http://127.0.0.1:9";
 const USAGE = "usage: smoke-stdio.mjs --entry <file> | --bin <exe>";
-
-let child;
-let stderr = "";
-let globalTimer;
-
-function fail(message) {
-	console.error(`FAIL ${message}`);
-	process.exit(1);
-}
-
-function abort(message) {
-	clearTimeout(globalTimer);
-	child?.kill("SIGKILL");
-	fail(`${message}${stderr ? `\nstderr: ${stderr.trim()}` : ""}`);
-}
 
 function parseCli(argv) {
 	let values;
@@ -62,12 +45,7 @@ const [command, args] = opts.entry
 	? [process.execPath, [opts.entry, ...serverArgs]]
 	: [opts.bin, serverArgs];
 
-child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
-child.stderr.on("data", (chunk) => {
-	stderr += chunk;
-});
-
-globalTimer = setTimeout(() => abort(`timed out after ${GLOBAL_TIMEOUT_MS} ms`), GLOBAL_TIMEOUT_MS);
+const { child, exited } = spawnServer(command, args);
 
 const pending = new Map();
 
@@ -94,8 +72,6 @@ function handleLine(line) {
 	}
 }
 
-child.on("error", (error) => abort(`failed to spawn: ${error.message}`));
-
 const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
 
 function request(id, method, params) {
@@ -104,10 +80,6 @@ function request(id, method, params) {
 		send({ id, method, params });
 	});
 }
-
-const exited = new Promise((resolve) =>
-	child.on("exit", (code, signal) => resolve({ code, signal })),
-);
 
 async function main() {
 	const init = await request(1, "initialize", {
@@ -129,23 +101,9 @@ async function main() {
 	const list = await request(2, "tools/list", {});
 	if (list.error) abort(`tools/list failed: ${JSON.stringify(list.error)}`);
 	const tools = list.result?.tools ?? [];
-	for (const name of expectedTools) {
-		const tool = tools.find((t) => t.name === name);
-		if (!tool) abort(`missing tool: ${name} (got ${tools.map((t) => t.name).join(",")})`);
-		if (tool.inputSchema?.type !== "object") {
-			abort(`tool ${name}: inputSchema.type is ${JSON.stringify(tool.inputSchema?.type)}`);
-		}
-	}
+	assertTools(tools);
 
-	child.stdin.end();
-	const exitTimer = setTimeout(
-		() => abort(`server did not exit within ${EXIT_TIMEOUT_MS} ms of stdin close`),
-		EXIT_TIMEOUT_MS,
-	);
-	const { code, signal } = await exited;
-	clearTimeout(exitTimer);
-	clearTimeout(globalTimer);
-	if (code !== 0) fail(`server exited with code ${code} signal ${signal}`);
+	await expectCleanExit(exited, EXIT_TIMEOUT_MS, "stdin close", () => child.stdin.end());
 
 	console.log(`OK node ${process.version} tools=${tools.map((t) => t.name).join(",")}`);
 }
