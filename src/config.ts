@@ -4,7 +4,10 @@ const LogLevelSchema = z.enum(["debug", "info", "warn", "error"]);
 const TransportSchema = z.enum(["http", "stdio"]);
 
 const ConfigSchema = z.object({
-	zoektUrl: z.string().url(),
+	zoektUrl: z.url({
+		error: (issue) =>
+			issue.input === undefined ? "ZOEKT_URL (or --url) is required" : "must be a valid URL",
+	}),
 	mcpPort: z.coerce.number().int().min(1).max(65535).default(3000),
 	mcpHost: z.string().default("0.0.0.0"),
 	mcpTransport: TransportSchema.default("http"),
@@ -49,7 +52,7 @@ export function loadConfig(cliArgs: CliArgs = {}): Config {
 	const result = ConfigSchema.safeParse(rawConfig);
 
 	if (!result.success) {
-		const errors = result.error.errors.map((e) => `  ${e.path.join(".")}: ${e.message}`).join("\n");
+		const errors = result.error.issues.map((e) => `  ${e.path.join(".")}: ${e.message}`).join("\n");
 		throw new Error(`Configuration validation failed:\n${errors}`);
 	}
 

@@ -1,14 +1,24 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { z } from "zod";
 import pkg from "../package.json";
 import type { Logger } from "./logger.js";
 import {
 	executeFileContent,
+	type FileContentInput,
 	fileContentDescription,
 	fileContentSchema,
 } from "./tools/file-content.js";
-import { executeListRepos, listReposDescription, listReposSchema } from "./tools/list-repos.js";
-import { executeSearch, searchDescription, searchSchema } from "./tools/search.js";
+import {
+	executeListRepos,
+	type ListReposInput,
+	listReposDescription,
+	listReposSchema,
+} from "./tools/list-repos.js";
+import {
+	executeSearch,
+	type SearchInput,
+	searchDescription,
+	searchSchema,
+} from "./tools/search.js";
 import { getErrorMessage } from "./utils.js";
 import { ZoektClient } from "./zoekt/client.js";
 
@@ -18,15 +28,14 @@ export interface CreateServerOptions {
 	logger: Logger;
 }
 
-function createToolHandler<T extends z.ZodTypeAny>(
+function createToolHandler<I>(
 	logger: Logger,
 	toolName: string,
-	schema: T,
-	execute: (input: z.infer<T>) => Promise<string>,
+	execute: (input: I) => Promise<string>,
 ) {
-	return async (params: unknown) => {
+	// The SDK validates, strips unknown keys and applies defaults before invoking the handler.
+	return async (input: I) => {
 		try {
-			const input = schema.parse(params);
 			logger.debug({ tool: toolName, input }, `Executing ${toolName}`);
 			const result = await execute(input);
 			return { content: [{ type: "text" as const, text: result }] };
@@ -56,13 +65,13 @@ export function createMcpServer({
 	server.registerTool(
 		"search",
 		{ description: searchDescription, inputSchema: searchSchema.shape },
-		createToolHandler(logger, "search", searchSchema, (input) => executeSearch(zoektClient, input)),
+		createToolHandler(logger, "search", (input: SearchInput) => executeSearch(zoektClient, input)),
 	);
 
 	server.registerTool(
 		"list_repos",
 		{ description: listReposDescription, inputSchema: listReposSchema.shape },
-		createToolHandler(logger, "list_repos", listReposSchema, (input) =>
+		createToolHandler(logger, "list_repos", (input: ListReposInput) =>
 			executeListRepos(zoektClient, input),
 		),
 	);
@@ -70,7 +79,7 @@ export function createMcpServer({
 	server.registerTool(
 		"file_content",
 		{ description: fileContentDescription, inputSchema: fileContentSchema.shape },
-		createToolHandler(logger, "file_content", fileContentSchema, (input) =>
+		createToolHandler(logger, "file_content", (input: FileContentInput) =>
 			executeFileContent(zoektClient, input),
 		),
 	);
