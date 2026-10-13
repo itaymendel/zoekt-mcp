@@ -7,7 +7,8 @@ import type { Logger } from "./logger.js";
 import { getErrorMessage } from "./utils.js";
 
 export interface HttpServerOptions {
-	server: McpServer;
+	/** Called once per SSE session; an McpServer can only be connected to one transport. */
+	createServer: () => McpServer;
 	host: string;
 	port: number;
 	logger: Logger;
@@ -27,6 +28,7 @@ interface SSESession {
 }
 
 interface SessionEntry {
+	server: McpServer;
 	transport: NodeSSETransport;
 	session: SSESession;
 	lastActivity: number;
@@ -69,7 +71,12 @@ class NodeSSETransport implements Transport {
 	}
 }
 
-export function createHttpServer({ server, host, port, logger }: HttpServerOptions): {
+export function createHttpServer({
+	createServer: createMcpServer,
+	host,
+	port,
+	logger,
+}: HttpServerOptions): {
 	start: () => Promise<void>;
 } {
 	const sessions = new Map<string, SessionEntry>();
@@ -80,7 +87,7 @@ export function createHttpServer({ server, host, port, logger }: HttpServerOptio
 		for (const [sessionId, entry] of sessions) {
 			if (now - entry.lastActivity > SESSION_TTL_MS) {
 				logger.info({ sessionId }, "Cleaning up stale session");
-				entry.transport.close();
+				entry.server.close();
 				sessions.delete(sessionId);
 			}
 		}
@@ -114,7 +121,7 @@ export function createHttpServer({ server, host, port, logger }: HttpServerOptio
 				break;
 
 			case "/sse":
-				handleSSE(req, res, server, sessions, logger);
+				handleSSE(req, res, createMcpServer(), sessions, logger);
 				break;
 
 			case "/messages":
@@ -149,7 +156,7 @@ export function createHttpServer({ server, host, port, logger }: HttpServerOptio
 					logger.info("Shutting down HTTP server");
 					clearInterval(cleanupInterval);
 					for (const entry of sessions.values()) {
-						entry.transport.close();
+						entry.server.close();
 					}
 					httpServer.close();
 				}
@@ -185,7 +192,7 @@ function handleSSE(
 
 	const session: SSESession = { res, closed: false };
 	transport.setSession(session);
-	sessions.set(sessionId, { transport, session, lastActivity: Date.now() });
+	sessions.set(sessionId, { server, transport, session, lastActivity: Date.now() });
 
 	// Send endpoint event
 	const endpoint = `/messages?sessionId=${sessionId}`;
@@ -201,7 +208,7 @@ function handleSSE(
 		logger.info({ sessionId }, "SSE connection closed");
 		session.closed = true;
 		sessions.delete(sessionId);
-		transport.close();
+		server.close();
 	});
 }
 

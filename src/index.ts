@@ -101,16 +101,17 @@ async function main(): Promise<void> {
 			"Starting zoekt-mcp",
 		);
 
-		const server = createMcpServer({
-			zoektUrl: config.zoektUrl,
-			zoektTimeoutMs: config.zoektTimeoutMs,
-			logger,
-		});
+		const createServer = () =>
+			createMcpServer({
+				zoektUrl: config.zoektUrl,
+				zoektTimeoutMs: config.zoektTimeoutMs,
+				logger,
+			});
 
 		if (config.mcpTransport === "stdio") {
-			await startStdioTransport(server, logger);
+			await startStdioTransport(createServer(), logger);
 		} else {
-			await startHttpTransport(server, config, logger);
+			await startHttpTransport(createServer, config, logger);
 		}
 	} catch (error) {
 		logger.error({ error: getErrorMessage(error) }, "Fatal error");
@@ -138,12 +139,12 @@ async function startStdioTransport(server: McpServer, logger: Logger): Promise<v
 }
 
 async function startHttpTransport(
-	server: McpServer,
+	createServer: () => McpServer,
 	config: Config,
 	logger: Logger,
 ): Promise<void> {
 	const httpServer = createHttpServer({
-		server,
+		createServer,
 		host: config.mcpHost,
 		port: config.mcpPort,
 		logger,
