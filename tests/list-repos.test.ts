@@ -1,15 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { normalizeRepoList } from "../src/tools/list-repos.js";
 import { formatBytes, formatRepoList, redactUrl } from "../src/utils.js";
 import { RepoListWireSchema } from "../src/zoekt/types.js";
 import { startFakeZoekt } from "./helpers/fake-zoekt.js";
+import { expectGolden } from "./helpers/golden.js";
 import { hangingFetch } from "./helpers/hanging-fetch.js";
 import { connectTestClient, resultText, type TestMcp } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
 import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
-
-const GOLDEN = new URL("./golden/repos-all.txt", import.meta.url);
 
 let mcp: TestMcp | undefined;
 afterEach(async () => {
@@ -110,7 +108,7 @@ describe("list_repos output", () => {
 	test("golden: list-all", async () => {
 		const { text } = await callListRepos({ "/search": "list-all" });
 
-		expect(text).toBe(readFileSync(GOLDEN, "utf8"));
+		expectGolden("repos-all.txt", text);
 	});
 
 	test("multi-branch alpha row shows branch@sha7; beta shows HEAD@", async () => {

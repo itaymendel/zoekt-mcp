@@ -2,6 +2,8 @@
 export interface ToolResult<T = unknown> {
 	text: string;
 	data?: T;
+	/** Small scalar facts about the call, logged at debug level on completion. */
+	summary?: Record<string, string | number | boolean>;
 }
 
 /** Per-call context handed to every tool's execute function. */

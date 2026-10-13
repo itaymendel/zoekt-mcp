@@ -1,0 +1,36 @@
+# example.test/alpha
+## pkg/mod0.go
+10:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 0.1
+--
+20:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 0.2
+--
+30:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 0.3
+--
+40:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 0.4
+--
+50:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 0.5
+
+## pkg/mod1.go
+10:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 1.1
+--
+20:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 1.2
+--
+30:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 1.3
+--
+40:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 1.4
+--
+50:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 1.5
+
+## pkg/mod2.go
+10:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 2.1
+--
+20:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 2.2
+--
+30:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 2.3
+--
+40:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 2.4
+--
+50:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 2.5
+
+---
+Truncated: output budget (1500 chars) reached after 3 of 12 files. Refine with repo:, file:, lang: or -file: filters, or raise maxFiles / maxMatchesPerFile.

@@ -1,39 +1,7 @@
-import type { FileMatch, Match, RepoInfo, RepoList, SearchResponse } from "./zoekt/types.js";
+import type { RepoInfo, RepoList } from "./zoekt/types.js";
 
 export function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-export function formatSearchResultsAsText(response: SearchResponse): string {
-	const files = response.result.FileMatches ?? [];
-	if (files.length === 0) return "No matches found.";
-	return files.map(formatFileMatch).join("\n");
-}
-
-function formatFileMatch(file: FileMatch): string {
-	const header = `## ${file.Repo}/${file.FileName}`;
-	const language = file.Language ? `Language: ${file.Language}` : "";
-	const branches = file.Branches?.length ? `Branches: ${file.Branches.join(", ")}` : "";
-
-	const matches = file.Matches ?? [];
-	const formattedMatches = matches.map(formatMatch).filter(Boolean).join("\n");
-
-	const parts = [header, language, branches].filter(Boolean);
-	if (formattedMatches) {
-		parts.push("", formattedMatches);
-	}
-
-	return `${parts.join("\n")}\n`;
-}
-
-function formatMatch(match: Match): string {
-	const fragments = match.Fragments.map((f) => {
-		const content = `${f.Pre}${f.Match}${f.Post}`.trim();
-		return content ? `> ${match.LineNum}: ${content}` : "";
-	})
-		.filter(Boolean)
-		.join("\n");
-	return fragments;
 }
 
 const MAX_BRANCHES_SHOWN = 3;
@@ -85,7 +53,7 @@ function formatRepoLine(repo: RepoInfo): string {
 		.join("  ");
 }
 
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+export const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
 
 /** Base-1024 size with one decimal above 1 KiB. */
 export function formatBytes(bytes: number): string {

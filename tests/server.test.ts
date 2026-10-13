@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Client } from "@modelcontextprotocol/client";
+import pino from "pino";
 import { createMcpServer } from "../src/server.js";
 import { connectTestClient, resultText } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
@@ -33,12 +34,12 @@ describe("tool schemas", () => {
 		const props = search?.inputSchema.properties as Record<string, Record<string, unknown>>;
 
 		expect(props.query?.type).toBe("string");
-		expect(props.limit?.maximum).toBe(100);
-		expect(props.limit?.minimum).toBe(1);
-		expect(props.limit?.default).toBe(30);
-		expect(String(props.limit?.description).length).toBeGreaterThan(0);
-		expect(props.contextLines?.maximum).toBe(10);
-		expect(props.contextLines?.default).toBe(3);
+		expect(props.query?.minLength).toBe(1);
+		expect(props.limit).toBeUndefined();
+		expect(props.maxFiles).toMatchObject({ minimum: 1, maximum: 100, default: 20 });
+		expect(String(props.maxFiles?.description).length).toBeGreaterThan(0);
+		expect(props.maxMatchesPerFile).toMatchObject({ minimum: 1, maximum: 50, default: 5 });
+		expect(props.contextLines).toMatchObject({ minimum: 0, maximum: 10, default: 2 });
 		expect(search?.inputSchema.required).toEqual(["query"]);
 	});
 
@@ -73,18 +74,55 @@ describe("tool calls", () => {
 		expect(result.isError).toBeFalsy();
 		const url = new URL(requestedUrls[0] ?? "");
 		expect(url.searchParams.get("q")).toBe("foo");
-		expect(url.searchParams.get("num")).toBe("30");
-		expect(url.searchParams.get("ctx")).toBe("3");
+		expect(url.searchParams.get("num")).toBe("21");
+		expect(url.searchParams.get("ctx")).toBe("2");
 	});
 
-	test("search rejects out-of-range arguments", async () => {
+	test("search rejects out-of-range arguments without calling Zoekt", async () => {
+		for (const bad of [
+			{ maxFiles: 101 },
+			{ maxFiles: 0 },
+			{ maxMatchesPerFile: 51 },
+			{ maxMatchesPerFile: 0 },
+			{ contextLines: 11 },
+			{ contextLines: -1 },
+			{ query: "" },
+		]) {
+			const result = await client.callTool({
+				name: "search",
+				arguments: { query: "foo", ...bad },
+			});
+
+			expect(result.isError).toBe(true);
+		}
+		expect(requestedUrls).toHaveLength(0);
+	});
+
+	test("search ignores the removed limit argument", async () => {
 		const result = await client.callTool({
 			name: "search",
-			arguments: { query: "foo", limit: 101 },
+			arguments: { query: "foo", limit: 5 },
 		});
 
-		expect(result.isError).toBe(true);
-		expect(requestedUrls).toHaveLength(0);
+		expect(result.isError).toBeFalsy();
+		expect(new URL(requestedUrls[0] ?? "").searchParams.get("num")).toBe("21");
+	});
+});
+
+describe("tool completion logging", () => {
+	test("every tool logs a debug completion line; search adds query, files and durationMs", async () => {
+		const lines: Array<Record<string, unknown>> = [];
+		const logger = pino({ level: "debug" }, { write: (s: string) => lines.push(JSON.parse(s)) });
+		const deps = testDeps(mockZoektFetch({ "/search": "search-file-only" }));
+		const mcp = await connectTestClient({ ...deps, logger });
+		try {
+			await mcp.client.callTool({ name: "search", arguments: { query: "f:notes" } });
+		} finally {
+			await mcp.close();
+		}
+
+		const done = lines.find((l) => l.msg === "search finished");
+		expect(done).toMatchObject({ tool: "search", query: "f:notes", files: 1, durationMs: 0 });
 	});
 });
 

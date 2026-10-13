@@ -1,0 +1,13 @@
+# example.test/alpha
+## src/app.ts
+1-function run() {
+2-
+3:	needle();
+4-}
+--
+19-// later
+20:const x = needle;
+21-export { x };
+
+---
+1 file, 2 matching lines.
