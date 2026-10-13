@@ -446,8 +446,9 @@ describe("graceful shutdown", () => {
 		socket.write(
 			'POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 500\r\n\r\n{"jsonrpc"',
 		);
-		// A round trip on another connection: the server has read the partial request by now.
-		await fetch(`${server.baseUrl}/healthz`);
+		// Deterministic sync point: the server has parsed this request's headers and is awaiting the body.
+		const arrived = await server.nextRequest();
+		expect(arrived.url).toBe("/mcp");
 
 		const started = performance.now();
 		const { forced } = await server.close();
