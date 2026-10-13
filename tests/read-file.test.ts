@@ -40,10 +40,8 @@ describe("read_file output", () => {
 		);
 
 		expect(result.isError).toBeFalsy();
-		expect(text).toStartWith(
-			"# example.test/alpha\n## docs/notes.txt  (5 lines)\n\n1:first line\n",
-		);
-		expect(text).toEndWith("5:needle three\n\nEnd of file.");
+		expect(text).toStartWith("# example.test/alpha\n## docs/notes.txt  (5 lines)\n1:first line\n");
+		expect(text).toEndWith("5:needle three\n\n---\nEnd of file.");
 		expectGolden("read-file-ok.txt", text);
 	});
 
@@ -277,16 +275,27 @@ describe("read_file errors", () => {
 		expect(paths).toEqual(["/print", "/search"]);
 	});
 
-	test("ambiguous with a substring branch asks for a more specific one", async () => {
+	test("ambiguous with the default branch as a substring suggests HEAD", async () => {
 		const { text, paths } = await callRead(
 			{ "/print": "print-ambiguous", "/search": "list-all" },
 			{ repo: ALPHA, path: "Makefile", branch: "main" },
 		);
 
 		expect(text).toContain('match branch "main"');
-		expect(text).toContain("Pass a more specific branch.");
-		expect(text).toContain("main-old");
+		expect(text).toContain('Pass branch: "HEAD" to read the default branch.');
+		expect(text).toContain("Indexed branches: main, main-old, feature.");
 		expect(paths).toEqual(["/search", "/print"]);
+	});
+
+	test("ambiguous with another substring branch states the limitation", async () => {
+		const { text } = await callRead(
+			{ "/print": "print-ambiguous", "/search": "list-all" },
+			{ repo: ALPHA, path: "Makefile", branch: "feature" },
+		);
+
+		expect(text).toContain('match branch "feature"');
+		expect(text).toContain("known limitation");
+		expect(text).not.toContain("HEAD");
 	});
 
 	test("not indexed binary", async () => {
@@ -311,32 +320,5 @@ describe("read_file errors", () => {
 		expect(result.isError).toBe(true);
 		expect(text).toContain("larger than the indexer's size limit): example.test/alpha:big.sql.");
 		expect(text).not.toContain("1:NOT-INDEXED");
-	});
-});
-
-describe("print streaming cap", () => {
-	test("print stops reading at maxBytes", async () => {
-		let cancelled = false;
-		let pulled = 0;
-		const chunk = new Uint8Array(512).fill(97);
-		const body = new ReadableStream<Uint8Array>({
-			pull(controller) {
-				pulled++;
-				controller.enqueue(chunk);
-			},
-			cancel() {
-				cancelled = true;
-			},
-		});
-		const { client } = testDeps((async () => new Response(body)) as unknown as typeof fetch);
-
-		const { bytes, truncated } = await client.print(ALPHA, "inf.txt", undefined, {
-			maxBytes: 1024,
-		});
-
-		expect(bytes.length).toBe(1024);
-		expect(truncated).toBe(true);
-		expect(cancelled).toBe(true);
-		expect(pulled).toBeLessThan(10);
 	});
 });

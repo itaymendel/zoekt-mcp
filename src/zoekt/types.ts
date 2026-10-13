@@ -209,8 +209,6 @@ export interface RepoInfo {
 	metadata?: Record<string, string>;
 }
 
-export type FileTruncationReason = "window" | "chars" | "fetchCap";
-
 /** Canonical shape of a `read_file` answer: a bounded, line-numbered window of one file. */
 export interface FileContent {
 	repo: string;
@@ -226,7 +224,7 @@ export interface FileContent {
 	/** Returned lines as `N:text` rows joined by newlines (CRLF stripped, long lines clipped). */
 	content: string;
 	truncated: boolean;
-	truncationReason?: FileTruncationReason;
+	truncationReason?: "window" | "chars" | "fetchCap";
 	/** Where to continue when the window was cut and more lines are readable. */
 	nextStartLine?: number;
 }

@@ -1,5 +1,5 @@
-import { clipLineTail } from "./clip.js";
-import { plural } from "./utils.js";
+import { clipLineTail, splitLines, stripEol } from "./clip.js";
+import { pathHeading, plural, repoHeading } from "./utils.js";
 import type { FileContent } from "./zoekt/types.js";
 
 /** Lines returned when `endLine` is not given. */
@@ -13,33 +13,34 @@ export const MAX_LINE_LENGTH = 2000;
 /** `print` stops reading (and cancels the stream) after this many bytes. */
 export const MAX_FETCH_BYTES = 8 * 1024 * 1024;
 
-export interface FileWindowInput {
-	repo: string;
-	path: string;
-	branch?: string;
+export interface FileRange {
 	startLine: number;
-	/** Already defaulted and validated (`>= startLine`); clamped here to `MAX_WINDOW_LINES`. */
+	/** Last line wanted, after defaulting (`startLine + 499`) and clamping to `MAX_WINDOW_LINES`. */
 	endLine: number;
-}
-
-export interface FileWindow {
-	file: FileContent;
-	/** The request was wider than `MAX_WINDOW_LINES` and was cut. */
+	/** The request was wider than `MAX_WINDOW_LINES`. */
 	clamped: boolean;
 }
 
-/** Thrown when the bytes cannot be shown as text (NUL byte in the first chunk). */
-export class BinaryContentError extends Error {}
+/** The only place that defaults, validates and clamps the requested range. */
+export function resolveRange(startLine: number, endLine?: number): FileRange {
+	const wanted = endLine ?? startLine + DEFAULT_WINDOW_LINES - 1;
+	if (wanted < startLine) {
+		throw new Error(`endLine (${wanted}) must not be before startLine (${startLine}).`);
+	}
+	const clamped = wanted - startLine + 1 > MAX_WINDOW_LINES;
+	return { startLine, endLine: clamped ? startLine + MAX_WINDOW_LINES - 1 : wanted, clamped };
+}
 
-/** Turns fetched bytes into the requested numbered window. Pure. */
+/** Turns fetched bytes into the numbered window `range` asks for. Pure. */
 export function buildFileContent(
 	bytes: Uint8Array,
 	fetchTruncated: boolean,
-	input: FileWindowInput,
-): FileWindow {
+	file: { repo: string; path: string; branch?: string },
+	{ startLine, endLine: wantedEnd }: FileRange,
+): FileContent {
 	if (bytes.subarray(0, 8000).includes(0)) {
-		throw new BinaryContentError(
-			`File looks binary (contains NUL bytes): ${input.repo}:${input.path}. read_file returns text files only.`,
+		throw new Error(
+			`File looks binary (contains NUL bytes): ${file.repo}:${file.path}. read_file returns text files only.`,
 		);
 	}
 	let text = new TextDecoder().decode(bytes);
@@ -48,21 +49,14 @@ export function buildFileContent(
 		const cut = text.lastIndexOf("\n");
 		text = cut >= 0 ? text.slice(0, cut + 1) : text;
 	}
-	const lines = text === "" ? [] : text.split("\n");
-	if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+	const lines = splitLines(text);
 	const totalLines = lines.length;
-
-	const { startLine } = input;
-	const clamped = input.endLine - startLine + 1 > MAX_WINDOW_LINES;
-	const requestedEnd = clamped ? startLine + MAX_WINDOW_LINES - 1 : input.endLine;
-	const lastWanted = Math.min(requestedEnd, totalLines);
 
 	const rows: string[] = [];
 	let chars = 0;
 	let charCut = false;
-	for (let n = startLine; n <= lastWanted; n++) {
-		const raw = lines[n - 1] ?? "";
-		const row = `${n}:${clipLineTail(raw.endsWith("\r") ? raw.slice(0, -1) : raw, MAX_LINE_LENGTH)}`;
+	for (let n = startLine; n <= Math.min(wantedEnd, totalLines); n++) {
+		const row = `${n}:${clipLineTail(stripEol(lines[n - 1] ?? ""), MAX_LINE_LENGTH)}`;
 		if (rows.length > 0 && chars + row.length + 1 > MAX_OUTPUT_CHARS) {
 			charCut = true;
 			break;
@@ -72,72 +66,58 @@ export function buildFileContent(
 	}
 	const endLine = startLine + rows.length - 1;
 
-	const file: FileContent = {
-		repo: input.repo,
-		path: input.path,
-		...(input.branch ? { branch: input.branch } : {}),
+	let truncationReason: FileContent["truncationReason"];
+	if (charCut) truncationReason = "chars";
+	else if (endLine < totalLines) truncationReason = "window";
+	else if (fetchTruncated) truncationReason = "fetchCap";
+
+	return {
+		...file,
 		startLine,
 		endLine,
 		totalLines,
 		totalLinesIsLowerBound: fetchTruncated,
 		content: rows.join("\n"),
-		truncated: false,
+		truncated: truncationReason !== undefined,
+		...(truncationReason ? { truncationReason } : {}),
+		...(truncationReason === "chars" || truncationReason === "window"
+			? { nextStartLine: endLine + 1 }
+			: {}),
 	};
-	if (charCut) {
-		file.truncated = true;
-		file.truncationReason = "chars";
-		file.nextStartLine = endLine + 1;
-	} else if (endLine < totalLines) {
-		file.truncated = true;
-		file.truncationReason = "window";
-		file.nextStartLine = endLine + 1;
-	} else if (fetchTruncated) {
-		file.truncated = true;
-		file.truncationReason = "fetchCap";
-	}
-	return { file, clamped };
 }
 
-/** The text shown to the model: `# repo`, `## path  (N lines)`, numbered rows, footer. */
+/**
+ * The text shown to the model, in the layout of search output: `# repo`, `## path  (N lines)`,
+ * numbered rows, then a blank line, `---` and the footer (or a plain message when there are no rows).
+ */
 export function formatFileContent(file: FileContent, { clamped = false } = {}): string {
 	const { totalLines: total } = file;
-	const count = `${file.totalLinesIsLowerBound ? "at least " : ""}${total} ${plural(total, "line")}`;
-	const parts = [`# ${file.repo}`, `## ${file.path}  (${count})`];
+	const atLeast = file.totalLinesIsLowerBound ? "at least " : "";
+	const count = `${atLeast}${total} ${plural(total, "line")}`;
+	const out = [repoHeading(file.repo), pathHeading(file.path, `(${count})`)];
 	if (clamped) {
-		parts.push(`Note: the requested range was clamped to ${MAX_WINDOW_LINES} lines per call.`);
+		out.push(`Note: the requested range was clamped to ${MAX_WINDOW_LINES} lines per call.`);
 	}
-	parts.push("");
+	if (file.content !== "") out.push(file.content);
+	out.push("", "---", footer(file, count, atLeast));
+	return out.join("\n");
+}
 
+function footer(file: FileContent, count: string, atLeast: string): string {
 	if (file.content === "") {
-		parts.push(
-			total === 0
-				? "The file is empty."
-				: `startLine=${file.startLine} is past the end of the file (${count}).`,
-		);
-		return parts.join("\n");
+		return file.totalLines === 0
+			? "The file is empty."
+			: `startLine=${file.startLine} is past the end of the file (${count}).`;
 	}
-	parts.push(file.content, "");
-
-	const shown = `lines ${file.startLine}-${file.endLine}`;
-	const of = `of ${file.totalLinesIsLowerBound ? "at least " : ""}${total}`;
+	const shown = `lines ${file.startLine}-${file.endLine} of ${atLeast}${file.totalLines}`;
 	switch (file.truncationReason) {
 		case "window":
-			parts.push(
-				`Truncated: showing ${shown} ${of}. Continue with startLine=${file.nextStartLine}.`,
-			);
-			break;
+			return `Truncated: showing ${shown}. Continue with startLine=${file.nextStartLine}.`;
 		case "chars":
-			parts.push(
-				`Truncated: the ${MAX_OUTPUT_CHARS.toLocaleString("en-US")}-character output limit was reached after line ${file.endLine} (${shown} ${of}). Continue with startLine=${file.nextStartLine}.`,
-			);
-			break;
+			return `Truncated: the ${MAX_OUTPUT_CHARS.toLocaleString("en-US")}-character output limit was reached after line ${file.endLine} (showing ${shown}). Continue with startLine=${file.nextStartLine}.`;
 		case "fetchCap":
-			parts.push(
-				`Truncated: read stopped at the ${MAX_FETCH_BYTES / (1024 * 1024)} MiB fetch limit after line ${file.endLine}; later lines are not available.`,
-			);
-			break;
+			return `Truncated: read stopped at the ${MAX_FETCH_BYTES / (1024 * 1024)} MiB fetch limit after line ${file.endLine}; later lines are not available.`;
 		default:
-			parts.push("End of file.");
+			return "End of file.";
 	}
-	return parts.join("\n");
 }

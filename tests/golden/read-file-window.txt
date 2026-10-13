@@ -1,6 +1,5 @@
 # example.test/alpha
 ## big.ts  (1200 lines)
-
 1:line 1
 2:line 2
 3:line 3
@@ -502,4 +501,5 @@
 499:line 499
 500:line 500
 
+---
 Truncated: showing lines 1-500 of 1200. Continue with startLine=501.

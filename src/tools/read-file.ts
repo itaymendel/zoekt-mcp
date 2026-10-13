@@ -4,8 +4,10 @@ import {
 	DEFAULT_WINDOW_LINES,
 	formatFileContent,
 	MAX_FETCH_BYTES,
+	MAX_LINE_LENGTH,
 	MAX_OUTPUT_CHARS,
 	MAX_WINDOW_LINES,
+	resolveRange,
 } from "../file-format.js";
 import type { ZoektClient } from "../zoekt/client.js";
 import {
@@ -14,7 +16,7 @@ import {
 	ZoektFileNotIndexedError,
 } from "../zoekt/errors.js";
 import { exactRepoAtom } from "../zoekt/query.js";
-import type { FileContent, RepoListWire } from "../zoekt/types.js";
+import type { FileContent } from "../zoekt/types.js";
 import type { ToolContext, ToolResult } from "./result.js";
 
 export const readFileSchema = z.object({
@@ -40,7 +42,7 @@ export type ReadFileInput = z.infer<typeof readFileSchema>;
 
 export const readFileDescription = `Read a file from an indexed repository as numbered lines (\`N:text\`).
 
-Returns at most ${DEFAULT_WINDOW_LINES} lines by default (up to ${MAX_WINDOW_LINES} with \`endLine\`) and ${MAX_OUTPUT_CHARS.toLocaleString("en-US")} characters per call; lines over 2000 characters are clipped. When the output is cut, the footer gives the \`startLine\` to continue with. Only text files that Zoekt indexed can be read (binary and oversized files are not indexed).
+Returns at most ${DEFAULT_WINDOW_LINES} lines by default (up to ${MAX_WINDOW_LINES} with \`endLine\`) and ${MAX_OUTPUT_CHARS.toLocaleString("en-US")} characters per call; lines over ${MAX_LINE_LENGTH} characters are clipped. When the output is cut, the footer gives the \`startLine\` to continue with. Only text files that Zoekt indexed can be read (binary and oversized files are not indexed).
 
 ### Parameters
 - \`repo\`, \`path\`: from \`search\` results (\`# <repo>\` and \`## <path>\`) or \`list_repos\`
@@ -57,34 +59,43 @@ function cleanPath(path: string): string {
 	return path.replace(/^(?:\.?\/)+/, "");
 }
 
-const branchNames = (wire: RepoListWire) => wire.Repos[0]?.Branches.map((b) => b.Name) ?? [];
+const NOT_INDEXED_WHY: Record<string, string> = {
+	binary: "binary content",
+	"too-large": "larger than the indexer's size limit",
+};
+
+interface PrintFailure {
+	repo: string;
+	path: string;
+	branch?: string;
+	/** Indexed branch names of `repo` (default branch first); undefined when the repo is not indexed. */
+	indexedBranches(): Promise<string[] | undefined>;
+}
 
 export async function executeReadFile(
 	client: ZoektClient,
 	input: ReadFileInput,
 	ctx: ToolContext,
 ): Promise<ToolResult<FileContent>> {
-	const { repo, branch, startLine } = input;
+	const { repo, branch } = input;
 	const path = cleanPath(input.path);
-	const endLine = input.endLine ?? startLine + DEFAULT_WINDOW_LINES - 1;
 	if (path === "") throw new Error("path must not be empty.");
-	if (endLine < startLine) {
-		throw new Error(`endLine (${endLine}) must not be before startLine (${startLine}).`);
-	}
+	const range = resolveRange(input.startLine, input.endLine);
 	const req = { signal: ctx.signal };
-	const lookupRepo = () =>
-		client.listRepos(exactRepoAtom(repo), {}, req).then((wire) => ({
-			...wire,
-			Repos: wire.Repos.filter((r) => r.Name === repo),
+
+	// One listRepos at most, shared by the branch check and any error explanation.
+	let lookup: Promise<string[] | undefined> | undefined;
+	const indexedBranches = () =>
+		(lookup ??= client.listRepos(exactRepoAtom(repo), {}, req).then((wire) => {
+			const entry = wire.Repos.find((r) => r.Name === repo);
+			return entry?.Branches.map((b) => b.Name);
 		}));
 
 	// `HEAD` is special-cased by Zoekt (the default branch); any other name is checked first because
 	// /print would silently match it as a substring.
-	let known: RepoListWire | undefined;
 	if (branch !== undefined && branch !== "HEAD") {
-		known = await lookupRepo();
-		if (known.Repos.length === 0) throw repoNotFound(repo);
-		const names = branchNames(known);
+		const names = await indexedBranches();
+		if (!names) throw repoNotFound(repo);
 		if (!names.includes(branch)) {
 			throw new Error(
 				`Branch "${branch}" is not indexed for ${repo}. Indexed branches: ${names.join(", ") || "(none)"}.`,
@@ -96,46 +107,12 @@ export async function executeReadFile(
 	try {
 		printed = await client.print(repo, path, branch, { maxBytes: MAX_FETCH_BYTES }, req);
 	} catch (error) {
-		if (error instanceof ZoektFileNotFoundError) {
-			known ??= await lookupRepo();
-			if (known.Repos.length === 0) throw repoNotFound(repo);
-			throw new Error(
-				`File not found: ${repo}:${path}${branch ? ` (branch ${branch})` : ""}. The path must be exact and relative to the repository root; use search with \`f:\` to find it.`,
-			);
-		}
-		if (error instanceof ZoektAmbiguousFileError) {
-			known ??= await lookupRepo();
-			const names = branchNames(known);
-			const listing = `Indexed branches: ${names.join(", ") || "(unknown)"}.`;
-			throw new Error(
-				branch
-					? `Multiple indexed versions of ${repo}:${path} match branch "${branch}" (Zoekt matches branch names as substrings, so "main" also matches "main-old"). Pass a more specific branch. ${listing}`
-					: `Multiple indexed versions of ${repo}:${path} exist (content differs between branches). Pass branch. ${listing}`,
-			);
-		}
-		if (error instanceof ZoektFileNotIndexedError) {
-			const why =
-				error.reason === "binary"
-					? "binary content"
-					: error.reason === "too-large"
-						? "larger than the indexer's size limit"
-						: error.detail;
-			throw new Error(
-				`File is not indexed by Zoekt (${why}): ${repo}:${path}. read_file returns indexed text files only.`,
-			);
-		}
-		throw error;
+		throw await explainPrintError(error, { repo, path, branch, indexedBranches });
 	}
 
-	const { file, clamped } = buildFileContent(printed.bytes, printed.truncated, {
-		repo,
-		path,
-		branch,
-		startLine,
-		endLine,
-	});
+	const file = buildFileContent(printed.bytes, printed.truncated, { repo, path, branch }, range);
 	return {
-		text: formatFileContent(file, { clamped }),
+		text: formatFileContent(file, { clamped: range.clamped }),
 		data: file,
 		summary: {
 			repo,
@@ -144,6 +121,40 @@ export async function executeReadFile(
 			totalLines: file.totalLines,
 		},
 	};
+}
+
+/** The error to show for a failed /print: typed Zoekt errors get a specific message, others pass through. */
+async function explainPrintError(error: unknown, ctx: PrintFailure): Promise<unknown> {
+	const { repo, path, branch } = ctx;
+	if (error instanceof ZoektFileNotFoundError) {
+		const names = await ctx.indexedBranches();
+		if (!names) return repoNotFound(repo);
+		return new Error(
+			`File not found: ${repo}:${path}${branch ? ` (branch ${branch})` : ""}. The path must be exact and relative to the repository root; use search with \`f:\` to find it.`,
+		);
+	}
+	if (error instanceof ZoektAmbiguousFileError) {
+		const names = (await ctx.indexedBranches()) ?? [];
+		const listing = `Indexed branches: ${names.join(", ") || "(unknown)"}.`;
+		const where = `Multiple indexed versions of ${repo}:${path}`;
+		if (!branch) {
+			return new Error(
+				`${where} exist (content differs between branches). Pass branch. ${listing}`,
+			);
+		}
+		const hint =
+			branch === names[0]
+				? `Pass branch: "HEAD" to read the default branch.`
+				: "This is a known limitation: Zoekt matches branch names as substrings, so a branch whose name is contained in another branch's name cannot be selected on its own.";
+		return new Error(`${where} match branch "${branch}". ${hint} ${listing}`);
+	}
+	if (error instanceof ZoektFileNotIndexedError) {
+		const why = NOT_INDEXED_WHY[error.reason] ?? error.detail;
+		return new Error(
+			`File is not indexed by Zoekt (${why}): ${repo}:${path}. read_file returns indexed text files only.`,
+		);
+	}
+	return error;
 }
 
 function repoNotFound(repo: string): Error {

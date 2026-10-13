@@ -1,10 +1,10 @@
 # example.test/alpha
 ## docs/notes.txt  (5 lines)
-
 1:first line
 2:needle one
 3:third line
 4:needle two
 5:needle three
 
+---
 End of file.

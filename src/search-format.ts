@@ -1,5 +1,5 @@
-import { clipLine, hardClip } from "./clip.js";
-import { plural } from "./utils.js";
+import { clipLine, hardClip, splitLines, stripEol } from "./clip.js";
+import { pathHeading, plural, repoHeading } from "./utils.js";
 import type {
 	FileMatch,
 	Match,
@@ -29,17 +29,9 @@ export interface NormalizeOptions {
 	maxFiles?: number;
 }
 
-const stripEol = (s: string) => {
-	const noLf = s.endsWith("\n") ? s.slice(0, -1) : s;
-	return noLf.endsWith("\r") ? noLf.slice(0, -1) : noLf;
-};
-
 /** `Before`/`After` are newline-terminated blocks; drop the one empty element after the last `\n`. */
 function contextRows(block: string): string[] {
-	if (block === "") return [];
-	const rows = block.split("\n");
-	if (rows[rows.length - 1] === "") rows.pop();
-	return rows.map(stripEol);
+	return splitLines(block).map(stripEol);
 }
 
 /** One line per Zoekt `Match`: fragments concatenated, `ranges` marking each fragment's match. */
@@ -148,7 +140,7 @@ function showBranches(files: SearchFile[]) {
 }
 
 function fileHeader(file: SearchFile, withBranches: boolean) {
-	let header = `## ${file.path}`;
+	let header = pathHeading(file.path);
 	if (isNotIndexed(file)) return `${header}  [not indexed: binary/too large]`;
 	if (file.filenameMatch && file.lines.length === 0) header += "  [filename match]";
 	const only = file.branches.length === 1 && file.branches[0] === "HEAD";
@@ -177,7 +169,7 @@ function renderFile(file: SearchFile, withBranches: boolean): string {
 }
 
 // Layout of the body: `# repo` headings, files grouped by repo (first appearance), blank lines between.
-const repoHeading = (repo: string) => `# ${repo}\n`;
+const repoLead = (repo: string) => `${repoHeading(repo)}\n`;
 
 function groupByRepo<T extends { repo: string }>(items: T[]): Map<string, T[]> {
 	const groups = new Map<string, T[]>();
@@ -192,15 +184,13 @@ function groupByRepo<T extends { repo: string }>(items: T[]): Map<string, T[]> {
 /** Characters a block adds to the body; `newRepo` is given the first time its repo appears. */
 function blockCost(block: string, newRepo?: string) {
 	return (
-		block.length +
-		BLOCK_SEPARATOR.length +
-		(newRepo === undefined ? 0 : repoHeading(newRepo).length)
+		block.length + BLOCK_SEPARATOR.length + (newRepo === undefined ? 0 : repoLead(newRepo).length)
 	);
 }
 
 function layoutBody(entries: Array<{ repo: string; block: string }>) {
 	return [...groupByRepo(entries)]
-		.map(([repo, group]) => repoHeading(repo) + group.map((e) => e.block).join(BLOCK_SEPARATOR))
+		.map(([repo, group]) => repoLead(repo) + group.map((e) => e.block).join(BLOCK_SEPARATOR))
 		.join(BLOCK_SEPARATOR);
 }
 

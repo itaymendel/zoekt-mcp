@@ -81,3 +81,10 @@ export function redactUrl(url: string): string {
 	// Defence for inputs URL parsing did not split (e.g. "u:secret@", "//u:secret@host").
 	return out.replace(/(^|\/\/)(?!\*{3}[:@])[^/@\s]+@/, "$1***@");
 }
+
+/** `# <repo>`: the first line of search and read_file output. */
+export const repoHeading = (repo: string) => `# ${repo}`;
+
+/** `## <path>` plus an optional parenthesised or bracketed suffix, two spaces after the path. */
+export const pathHeading = (path: string, suffix?: string) =>
+	suffix ? `## ${path}  ${suffix}` : `## ${path}`;

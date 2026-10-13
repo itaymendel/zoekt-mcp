@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ALPHA_REPO, BETA_REPO, DELTA_REPO } from "./helpers/fixture-repo.js";
+import { streamingBody } from "./helpers/hanging-fetch.js";
 import { testDeps } from "./helpers/test-deps.js";
 import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
 
@@ -69,5 +70,21 @@ describe("ZoektClient", () => {
 
 		expect(result.result.FileMatches).toBeDefined();
 		expect(fetch.requests[0].href.startsWith("http://localhost:6070/search?")).toBe(true);
+	});
+});
+
+describe("print streaming cap", () => {
+	test("print stops reading at maxBytes", async () => {
+		const { body, state } = streamingBody();
+		const { client } = testDeps((async () => new Response(body)) as unknown as typeof fetch);
+
+		const { bytes, truncated } = await client.print(ALPHA_REPO, "inf.txt", undefined, {
+			maxBytes: 1024,
+		});
+
+		expect(bytes.length).toBe(1024);
+		expect(truncated).toBe(true);
+		expect(state.cancelled).toBe(true);
+		expect(state.pulled).toBeLessThan(10);
 	});
 });
