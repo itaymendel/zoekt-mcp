@@ -707,9 +707,9 @@ describe("executeSearch", () => {
 					result: { Stats: { Duration: 12_345_678, FileCount: 0, MatchCount: 0 }, FileMatches: [] },
 				}),
 		});
-		const { text, structured } = await result;
+		const { text, summary } = await result;
 
-		expect(structured.durationMs).toBe(12);
+		expect(summary?.durationMs).toBe(12);
 		expect(text).not.toMatch(/ms\)|Stats:/);
 		expect(text).toBe("No matches for `q`.");
 	});

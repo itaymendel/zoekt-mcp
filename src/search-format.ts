@@ -93,7 +93,6 @@ function normalizeFile(
 		lines: [...byLine.values()].sort((a, b) => a.n - b.n),
 		hiddenMatchLines,
 	};
-	if (file.Language) out.language = file.Language;
 	return out;
 }
 

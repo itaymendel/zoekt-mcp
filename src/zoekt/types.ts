@@ -15,20 +15,14 @@ const num = z
 	.number()
 	.nullish()
 	.transform((v) => v ?? 0);
-const dict = z
-	.record(z.string(), z.string())
-	.nullish()
-	.transform((v) => v ?? {});
 
-export const FragmentSchema = z.object({
+const FragmentSchema = z.object({
 	Pre: str,
 	Match: str,
 	Post: str,
 });
 
-export const MatchSchema = z.object({
-	URL: str,
-	FileName: str,
+const MatchSchema = z.object({
 	LineNum: num,
 	Fragments: list(FragmentSchema),
 	/** Context lines before/after the match; only present when `ctx` > 0. */
@@ -36,46 +30,33 @@ export const MatchSchema = z.object({
 	After: str,
 });
 
-export const FileMatchSchema = z.object({
+const FileMatchSchema = z.object({
 	FileName: z.string(),
 	Repo: z.string(),
-	ResultID: str,
-	Language: str,
-	DuplicateID: str,
 	Branches: list(z.string()),
 	Matches: list(MatchSchema),
-	URL: str,
 });
 
-export const SearchStatsSchema = z.object({
+const SearchStatsSchema = z.object({
 	Duration: num,
 	FileCount: num,
 	MatchCount: num,
 	FilesSkipped: num,
 	ShardsSkipped: num,
-	ContentBytesLoaded: num,
-	IndexBytesLoaded: num,
-	ShardsScanned: num,
-	Crashes: num,
 });
 
 export const SearchResultSchema = z.object({
 	FileMatches: list(FileMatchSchema),
-	RepoURLs: dict,
 	Stats: SearchStatsSchema.nullish().transform((v) => v ?? undefined),
-	QueryStr: str,
-	Query: str,
 });
 
-export const RepoBranchSchema = z.object({
+const RepoBranchSchema = z.object({
 	Name: z.string(),
 	Version: str,
-	URL: str,
 });
 
-export const RepoEntrySchema = z.object({
+const RepoEntrySchema = z.object({
 	Name: z.string(),
-	URL: str,
 	/** RFC 3339, or undefined when Zoekt reports "unknown" (Go zero time or the Unix epoch). */
 	IndexTime: z
 		.string()
@@ -83,18 +64,12 @@ export const RepoEntrySchema = z.object({
 		.transform((v) => (v && new Date(v).getTime() > 0 ? v : undefined)),
 	Branches: list(RepoBranchSchema),
 	Files: num,
-	Metadata: dict,
 	Size: num,
-	MemorySize: num,
 });
 
-export const RepoListStatsSchema = z.object({
+const RepoListStatsSchema = z.object({
 	/** Total matching repositories, computed before `num` truncates `Repos`. */
 	Repos: num,
-	Shards: num,
-	Documents: num,
-	IndexBytes: num,
-	ContentBytes: num,
 });
 
 export const RepoListWireSchema = z.object({
@@ -112,13 +87,10 @@ export const ApiResponseSchema = z
 		message: "neither 'result' nor 'repos' present",
 	});
 
-export type Fragment = z.infer<typeof FragmentSchema>;
 export type Match = z.infer<typeof MatchSchema>;
 export type FileMatch = z.infer<typeof FileMatchSchema>;
-export type SearchStats = z.infer<typeof SearchStatsSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 export type RepoListWire = z.infer<typeof RepoListWireSchema>;
-export type ApiResponse = z.infer<typeof ApiResponseSchema>;
 /** A `/search` answer known to be the `{result}` branch. */
 export type SearchResponse = { result: SearchResult };
 
@@ -143,7 +115,6 @@ export interface SearchFile {
 	repo: string;
 	path: string;
 	branches: string[];
-	language?: string;
 	/** The file's path itself matched (Zoekt reports LineNum 0). */
 	filenameMatch: boolean;
 	/** Matching lines plus context lines, sorted by `n`. */
@@ -152,7 +123,7 @@ export interface SearchFile {
 	hiddenMatchLines: number;
 }
 
-export type TruncationReason = "maxFiles" | "maxMatchesPerFile" | "outputBudget";
+type TruncationReason = "maxFiles" | "maxMatchesPerFile" | "outputBudget";
 
 /** Normalized, bounded view of a Zoekt search answer; what the text renderer consumes. */
 export interface SearchModel {
@@ -200,13 +171,11 @@ export interface RepoList {
 
 export interface RepoInfo {
 	name: string;
-	url?: string;
 	branches: Array<{ name: string; sha: string }>;
 	files: number;
 	sizeBytes: number;
 	/** ISO timestamp; omitted when Zoekt reports a zero time. */
 	indexedAt?: string;
-	metadata?: Record<string, string>;
 }
 
 /** Canonical shape of a `read_file` answer: a bounded, line-numbered window of one file. */

@@ -64,7 +64,7 @@ export const searchDescription = `Search code with Zoekt. Matches are grouped by
 Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Results are bounded by maxFiles, maxMatchesPerFile and an output size budget; the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
 
 /** One displayed line of a hit. Extend this object to add per-line fields. */
-export const searchLineSchema = z.object({
+const searchLineSchema = z.object({
 	line: z.number().int().describe("1-based line number"),
 	text: z
 		.string()
@@ -77,7 +77,6 @@ export const searchLineSchema = z.object({
 export const searchFileSchema = z.object({
 	repo: z.string().describe("Repository name; pass as `repo` to read_file"),
 	path: z.string().describe("File path within the repository; pass as `path` to read_file"),
-	language: z.string().optional().describe("Language detected by Zoekt"),
 	branches: z.array(z.string()).describe("Indexed branches that contain this file version"),
 	filenameMatch: z.boolean().describe("The file path itself matched the query"),
 	lines: z
@@ -112,20 +111,18 @@ export const searchOutputSchema = z.object({
 			.int()
 			.describe("Files dropped to stay within the output size budget"),
 	}),
-	durationMs: z.number().int().describe("Zoekt search time in milliseconds"),
 });
 
 export type SearchOutput = z.infer<typeof searchOutputSchema>;
 
 /** The public projection of the internal model: no rendered blocks, limits or offsets. */
-export function toSearchOutput(model: SearchModel): SearchOutput {
+function toSearchOutput(model: SearchModel): SearchOutput {
 	const { totals, truncation } = model;
 	return {
 		query: model.query,
 		files: model.files.map((f) => ({
 			repo: f.repo,
 			path: f.path,
-			...(f.language ? { language: f.language } : {}),
 			branches: f.branches,
 			filenameMatch: f.filenameMatch,
 			lines: f.lines.map((l) => ({
@@ -145,7 +142,6 @@ export function toSearchOutput(model: SearchModel): SearchOutput {
 			hiddenMatchLines: truncation.hiddenMatchLines,
 			filesOmittedByBudget: truncation.filesOmittedByBudget,
 		},
-		durationMs: model.durationMs,
 	};
 }
 

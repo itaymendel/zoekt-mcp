@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Structured output.** `search`, `list_repos` and `read_file` declare an `outputSchema` and return `structuredContent` next to the unchanged text block (errors carry none). `search`: `query`, `files[]` (`repo`, `path`, `branches`, `filenameMatch`, `lines[]` of `line` / `text` / `isMatch`, `hiddenMatchLines`), `totalFiles`, `totalFilesIsLowerBound`, `totalMatches`, `truncated`, `truncation` (`reasons`, `moreFiles`, `hiddenMatchLines`, `filesOmittedByBudget`). `list_repos`: `filter`, `total`, `offset`, `limit`, `truncated`, `nextOffset`, `repos[]` (`name`, `branches[]` of `name` / `sha`, `files`, `sizeBytes`, `indexedAt`). `read_file`: `repo`, `path`, `branch`, `startLine`, `endLine`, `totalLines`, `totalLinesIsLowerBound`, `lines[]` of `line` / `text`, `truncated`, `truncationReason`, `nextStartLine`. It carries nothing the text omits (no repository URLs or metadata).
+
+### Removed
+
+- Unused internals: unread Zoekt wire fields, the internal `data` model on tool results and unused type exports. No behavior change.
+
 ## [1.0.0-alpha.0] - 2026-10-13
 
 First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@next`); `latest` stays at 0.1.0. See "Migrating from 0.1.x" in the README.

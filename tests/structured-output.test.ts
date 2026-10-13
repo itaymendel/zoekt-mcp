@@ -46,7 +46,6 @@ describe("tools/list", () => {
 			Object.keys(tools.find((t) => t.name === name)?.outputSchema?.properties ?? {}).sort();
 
 		expect(keys("search")).toEqual([
-			"durationMs",
 			"files",
 			"query",
 			"totalFiles",
@@ -113,7 +112,6 @@ describe("search structuredContent", () => {
 			totalMatches: 0,
 			truncated: false,
 			truncation: { reasons: [], moreFiles: 0, hiddenMatchLines: 0, filesOmittedByBudget: 0 },
-			durationMs: 0,
 		});
 	});
 
@@ -357,6 +355,37 @@ describe("read_file structuredContent", () => {
 		});
 
 		expect(readFileOutputSchema.parse(data).branch).toBe("HEAD");
+	});
+});
+
+describe("no data beyond the text", () => {
+	test("repo URLs with credentials and metadata never reach the result", async () => {
+		const route = () =>
+			Response.json({
+				repos: {
+					Stats: { Repos: 1 },
+					Repos: [
+						{
+							Name: "org/r",
+							URL: "https://user:secret@example.test/r.git",
+							Metadata: { token: "secret" },
+							Branches: [
+								{
+									Name: "HEAD",
+									Version: "a".repeat(40),
+									URL: "https://user:secret@example.test/r.git",
+								},
+							],
+							Files: 1,
+							Size: 1,
+						},
+					],
+				},
+			});
+		const { result, data } = await call("list_repos", { "/search": route });
+
+		expect(listReposOutputSchema.parse(data).repos[0]?.name).toBe("org/r");
+		expect(JSON.stringify(result)).not.toContain("secret");
 	});
 });
 

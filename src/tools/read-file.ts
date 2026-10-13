@@ -108,7 +108,7 @@ export const readFileOutputSchema = z.object({
 export type ReadFileOutput = z.infer<typeof readFileOutputSchema>;
 
 /** The public projection: the numbered `N:text` rows become `{ line, text }` entries. */
-export function toReadFileOutput(file: FileContent): ReadFileOutput {
+function toReadFileOutput(file: FileContent): ReadFileOutput {
 	const lines = file.content === "" ? [] : file.content.split("\n");
 	return {
 		repo: file.repo,

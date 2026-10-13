@@ -45,9 +45,8 @@ Use the exact names as \`repo\` in read_file and as \`r:"^name$"\` in search.
 - \`{ "filter": "^github\\\\.com/myorg/" }\`
 - \`{ "limit": 50, "offset": 50 }\``;
 
-export const repoInfoSchema = z.object({
+const repoInfoSchema = z.object({
 	name: z.string().describe("Exact repository name; use as `repo` in read_file"),
-	url: z.string().optional().describe("Repository URL, when Zoekt knows one"),
 	branches: z
 		.array(
 			z.object({
@@ -59,7 +58,6 @@ export const repoInfoSchema = z.object({
 	files: z.number().int().describe("Indexed documents"),
 	sizeBytes: z.number().int().describe("Size of the indexed content in bytes"),
 	indexedAt: z.string().optional().describe("RFC 3339 index time; absent when unknown"),
-	metadata: z.record(z.string(), z.string()).optional().describe("Repository metadata, if any"),
 });
 
 export const listReposOutputSchema = z.object({
@@ -75,7 +73,7 @@ export const listReposOutputSchema = z.object({
 export type ListReposOutput = z.infer<typeof listReposOutputSchema>;
 
 /** The public projection of the repository listing. */
-export function toListReposOutput(list: RepoList): ListReposOutput {
+function toListReposOutput(list: RepoList): ListReposOutput {
 	return {
 		...(list.filter !== undefined ? { filter: list.filter } : {}),
 		total: list.total,
@@ -85,12 +83,10 @@ export function toListReposOutput(list: RepoList): ListReposOutput {
 		...(list.nextOffset !== undefined ? { nextOffset: list.nextOffset } : {}),
 		repos: list.repos.map((r) => ({
 			name: r.name,
-			...(r.url !== undefined ? { url: r.url } : {}),
 			branches: r.branches.map((b) => ({ name: b.name, sha: b.sha })),
 			files: r.files,
 			sizeBytes: r.sizeBytes,
 			...(r.indexedAt !== undefined ? { indexedAt: r.indexedAt } : {}),
-			...(r.metadata !== undefined ? { metadata: r.metadata } : {}),
 		})),
 	};
 }
@@ -113,12 +109,10 @@ export function normalizeRepoList(
 		repos: page.map((r) =>
 			omitEmpty({
 				name: r.Name,
-				url: r.URL,
 				branches: r.Branches.map((b) => ({ name: b.Name, sha: b.Version })),
 				files: r.Files,
 				sizeBytes: r.Size,
 				indexedAt: r.IndexTime,
-				metadata: r.Metadata,
 			}),
 		),
 	});
