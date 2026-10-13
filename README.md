@@ -86,8 +86,10 @@ Or with environment variables:
 
 ## Development
 
+The Bun version is pinned in `.bun-version`; CI uses the same file.
+
 ```bash
-bun install
+bun install --frozen-lockfile
 ZOEKT_URL=http://localhost:6070 bun run dev
 bun test
 ```
