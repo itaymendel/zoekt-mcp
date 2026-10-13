@@ -190,8 +190,8 @@ export interface FileContent {
 	/** Lines in the file; a lower bound when the fetch was cut at the byte cap. */
 	totalLines: number;
 	totalLinesIsLowerBound: boolean;
-	/** Returned lines as `N:text` rows joined by newlines (CRLF stripped, long lines clipped). */
-	content: string;
+	/** Returned lines in ascending order (CRLF stripped, long lines clipped). */
+	lines: Array<{ line: number; text: string }>;
 	truncated: boolean;
 	truncationReason?: "window" | "chars" | "fetchCap";
 	/** Where to continue when the window was cut and more lines are readable. */

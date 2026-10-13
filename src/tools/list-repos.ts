@@ -72,25 +72,6 @@ export const listReposOutputSchema = z.object({
 
 export type ListReposOutput = z.infer<typeof listReposOutputSchema>;
 
-/** The public projection of the repository listing. */
-function toListReposOutput(list: RepoList): ListReposOutput {
-	return {
-		...(list.filter !== undefined ? { filter: list.filter } : {}),
-		total: list.total,
-		offset: list.offset,
-		limit: list.limit,
-		truncated: list.truncated,
-		...(list.nextOffset !== undefined ? { nextOffset: list.nextOffset } : {}),
-		repos: list.repos.map((r) => ({
-			name: r.name,
-			branches: r.branches.map((b) => ({ name: b.name, sha: b.sha })),
-			files: r.files,
-			sizeBytes: r.sizeBytes,
-			...(r.indexedAt !== undefined ? { indexedAt: r.indexedAt } : {}),
-		})),
-	};
-}
-
 export function normalizeRepoList(
 	wire: RepoListWire,
 	{ filter, limit, offset }: { filter?: string; limit: number; offset: number },
@@ -147,5 +128,5 @@ export async function executeListRepos(
 		{ signal: ctx.signal },
 	);
 	const data = normalizeRepoList(wire, { filter, limit, offset });
-	return { text: formatRepoList(data), structured: toListReposOutput(data) };
+	return { text: formatRepoList(data), structured: data };
 }

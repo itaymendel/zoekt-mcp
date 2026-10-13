@@ -16,7 +16,6 @@ import {
 	ZoektFileNotIndexedError,
 } from "../zoekt/errors.js";
 import { exactRepoAtom } from "../zoekt/query.js";
-import type { FileContent } from "../zoekt/types.js";
 import type { ToolContext, ToolResult } from "./result.js";
 
 export const readFileSchema = z.object({
@@ -107,27 +106,6 @@ export const readFileOutputSchema = z.object({
 
 export type ReadFileOutput = z.infer<typeof readFileOutputSchema>;
 
-/** The public projection: the numbered `N:text` rows become `{ line, text }` entries. */
-function toReadFileOutput(file: FileContent): ReadFileOutput {
-	const lines = file.content === "" ? [] : file.content.split("\n");
-	return {
-		repo: file.repo,
-		path: file.path,
-		...(file.branch !== undefined ? { branch: file.branch } : {}),
-		startLine: file.startLine,
-		endLine: file.endLine,
-		totalLines: file.totalLines,
-		totalLinesIsLowerBound: file.totalLinesIsLowerBound,
-		lines: lines.map((row) => {
-			const colon = row.indexOf(":");
-			return { line: Number(row.slice(0, colon)), text: row.slice(colon + 1) };
-		}),
-		truncated: file.truncated,
-		...(file.truncationReason ? { truncationReason: file.truncationReason } : {}),
-		...(file.nextStartLine !== undefined ? { nextStartLine: file.nextStartLine } : {}),
-	};
-}
-
 export async function executeReadFile(
 	client: ZoektClient,
 	input: ReadFileInput,
@@ -169,7 +147,7 @@ export async function executeReadFile(
 	const file = buildFileContent(printed.bytes, printed.truncated, { repo, path, branch }, range);
 	return {
 		text: formatFileContent(file, { clamped: range.clamped }),
-		structured: toReadFileOutput(file),
+		structured: file,
 		summary: {
 			repo,
 			path,
