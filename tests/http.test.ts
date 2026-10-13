@@ -21,6 +21,26 @@ const MCP_HEADERS = {
 	accept: "application/json, text/event-stream",
 };
 
+const postMcp = (baseUrl: string, body: string, extraHeaders: Record<string, string> = {}) =>
+	fetch(`${baseUrl}/mcp`, {
+		method: "POST",
+		headers: { ...MCP_HEADERS, ...extraHeaders },
+		body,
+	});
+
+/** Connects a v2 client, lists tools, calls search, and always closes the client. */
+async function roundTrip(baseUrl: string, options?: ConstructorParameters<typeof Client>[1]) {
+	const client = new Client({ name: "test-client", version: "0.0.0" }, options);
+	try {
+		await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`)));
+		const { tools } = await client.listTools();
+		const result = await client.callTool({ name: "search", arguments: { query: "handleRequest" } });
+		return { tools, result, serverName: client.getServerVersion()?.name };
+	} finally {
+		await client.close();
+	}
+}
+
 const initializeBody = (protocolVersion = "2025-06-18") =>
 	JSON.stringify({
 		jsonrpc: "2.0",
@@ -32,41 +52,27 @@ const initializeBody = (protocolVersion = "2025-06-18") =>
 describe("Streamable HTTP on /mcp", () => {
 	test("lists tools and calls search with a v2 client", async () => {
 		const { baseUrl, zoektFetch } = await start();
-		const client = new Client({ name: "test-client", version: "0.0.0" });
-		await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`)));
+		const { tools, result } = await roundTrip(baseUrl);
 
-		const { tools } = await client.listTools();
 		expect(tools.map((t) => t.name).sort()).toEqual(["file_content", "list_repos", "search"]);
-
-		const result = await client.callTool({ name: "search", arguments: { query: "handleRequest" } });
 		expect(result.isError).toBeFalsy();
 		expect(zoektFetch.requests[0]?.searchParams.get("q")).toBe("handleRequest");
-		await client.close();
 	});
 
 	test("serves the 2026-07-28 era through createMcpHandler", async () => {
 		const { baseUrl } = await start();
-		const client = new Client(
-			{ name: "test-client", version: "0.0.0" },
-			{ versionNegotiation: { mode: "auto" } },
-		);
-		await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`)));
+		const { tools, result, serverName } = await roundTrip(baseUrl, {
+			versionNegotiation: { mode: "auto" },
+		});
 
-		expect(client.getServerVersion()?.name).toBe("zoekt-mcp");
-		const { tools } = await client.listTools();
+		expect(serverName).toBe("zoekt-mcp");
 		expect(tools).toHaveLength(3);
-		const result = await client.callTool({ name: "search", arguments: { query: "handleRequest" } });
 		expect(result.isError).toBeFalsy();
-		await client.close();
 	});
 
 	test("2025 initialize POST returns serverInfo", async () => {
 		const { baseUrl } = await start();
-		const res = await fetch(`${baseUrl}/mcp`, {
-			method: "POST",
-			headers: MCP_HEADERS,
-			body: initializeBody(),
-		});
+		const res = await postMcp(baseUrl, initializeBody());
 
 		expect(res.status).toBe(200);
 		expect(await res.text()).toContain('"serverInfo":{"name":"zoekt-mcp"');
@@ -74,13 +80,8 @@ describe("Streamable HTTP on /mcp", () => {
 
 	test("malformed JSON on /mcp is a 4xx", async () => {
 		const { baseUrl } = await start();
-		const res = await fetch(`${baseUrl}/mcp`, {
-			method: "POST",
-			headers: MCP_HEADERS,
-			body: "{not json",
-		});
+		const res = await postMcp(baseUrl, "{not json");
 
-		console.log(`observed status for malformed JSON on /mcp: ${res.status}`);
 		expect(res.status).toBeGreaterThanOrEqual(400);
 		expect(res.status).toBeLessThan(500);
 	});
@@ -124,11 +125,7 @@ describe("routes", () => {
 		const { baseUrl } = await start();
 		const headers = { origin: "http://example.com" };
 		const responses = await Promise.all([
-			fetch(`${baseUrl}/mcp`, {
-				method: "POST",
-				headers: { ...MCP_HEADERS, ...headers },
-				body: initializeBody(),
-			}),
+			postMcp(baseUrl, initializeBody(), headers),
 			fetch(`${baseUrl}/mcp`, { method: "OPTIONS", headers }),
 			fetch(`${baseUrl}/healthz`, { headers }),
 			fetch(`${baseUrl}/sse`, { headers }),
@@ -150,7 +147,7 @@ describe("lifecycle", () => {
 	});
 
 	test("close() resolves and port refuses connections", async () => {
-		const server = await startTestServer();
+		const server = await start();
 		expect((await fetch(`${server.baseUrl}/healthz`)).status).toBe(200);
 
 		await server.close();

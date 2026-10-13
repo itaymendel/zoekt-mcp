@@ -83,9 +83,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: HTTP smoke test
-        run: node scripts/smoke-http.mjs
-
       - name: Package footprint
         run: |
           set -euo pipefail
@@ -138,3 +135,6 @@ jobs:
 
       - name: Stdio smoke test
         run: node scripts/smoke-stdio.mjs --entry dist/index.js
+
+      - name: HTTP smoke test
+        run: node scripts/smoke-http.mjs --entry dist/index.js

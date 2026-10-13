@@ -1,14 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
-import pino from "pino";
 import { createMcpServer } from "../src/server.js";
-import { ZoektClient } from "../src/zoekt/client.js";
-
-const logger = pino({ level: "silent" });
-const deps = () => ({
-	client: new ZoektClient({ baseUrl: "http://zoekt.test", timeoutMs: 5000, logger }),
-	logger,
-});
+import { testDeps } from "./helpers/test-deps.js";
 
 const originalFetch = globalThis.fetch;
 let requestedUrls: string[] = [];
@@ -23,7 +16,7 @@ beforeEach(async () => {
 		});
 	}) as typeof fetch;
 
-	const server = createMcpServer(deps());
+	const server = createMcpServer(testDeps());
 	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 	client = new Client({ name: "test-client", version: "0.0.0" });
 	await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -89,7 +82,7 @@ describe("tool calls", () => {
 
 describe("createMcpServer", () => {
 	test("createMcpServer is a pure factory", () => {
-		const shared = deps();
+		const shared = testDeps();
 		const a = createMcpServer(shared);
 		const b = createMcpServer(shared);
 
