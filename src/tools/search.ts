@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import {
 	capSearch,
 	DEFAULT_OUTPUT_CHARS,
@@ -35,6 +36,8 @@ export const searchSchema = z.object({
 });
 
 export type SearchInput = z.infer<typeof searchSchema>;
+
+export const searchMeta = { title: "Search code", annotations: READ_ONLY_ANNOTATIONS };
 
 export const searchDescription = `Search code using Zoekt.
 

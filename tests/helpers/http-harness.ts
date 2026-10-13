@@ -41,7 +41,10 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 		timeoutMs: zoektTimeoutMs,
 	});
 	const http = createHttpServer({
-		createServer: createServerFactory(deps),
+		createServer: createServerFactory({
+			...deps,
+			authRequired: httpOptions.authToken !== undefined,
+		}),
 		host,
 		port: 0,
 		logger: deps.logger,

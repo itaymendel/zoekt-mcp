@@ -9,6 +9,7 @@ import {
 	MAX_WINDOW_LINES,
 	resolveRange,
 } from "../file-format.js";
+import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import type { ZoektClient } from "../zoekt/client.js";
 import {
 	ZoektAmbiguousFileError,
@@ -39,6 +40,8 @@ export const readFileSchema = z.object({
 });
 
 export type ReadFileInput = z.infer<typeof readFileSchema>;
+
+export const readFileMeta = { title: "Read file", annotations: READ_ONLY_ANNOTATIONS };
 
 export const readFileDescription = `Read a file from an indexed repository as numbered lines (\`N:text\`).
 

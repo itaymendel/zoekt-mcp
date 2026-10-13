@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import { formatRepoList } from "../utils.js";
 import type { ZoektClient } from "../zoekt/client.js";
 import { repoListQuery } from "../zoekt/query.js";
@@ -27,6 +28,11 @@ export const listReposSchema = z.object({
 });
 
 export type ListReposInput = z.infer<typeof listReposSchema>;
+
+export const listReposMeta = {
+	title: "List indexed repositories",
+	annotations: READ_ONLY_ANNOTATIONS,
+};
 
 export const listReposDescription = `List indexed repositories, one line per repository: name, branches (branch@sha), file count, size and index date.
 

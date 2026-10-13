@@ -125,7 +125,11 @@ async function main(): Promise<void> {
 			timeoutMs: config.zoektTimeoutMs,
 			logger,
 		});
-		const createServer = createServerFactory({ client, logger });
+		const createServer = createServerFactory({
+			client,
+			logger,
+			authRequired: config.mcpAuthToken !== undefined,
+		});
 
 		if (config.mcpTransport === "stdio") {
 			await startStdioTransport(createServer, logger);
