@@ -191,7 +191,7 @@ describe("search structuredContent", () => {
 		);
 		const out = searchOutputSchema.parse(data);
 
-		expect(out.files[0]?.lines[0]?.text.length).toBeLessThanOrEqual(2000);
+		expect(out.files[0]?.lines[0]?.text.length).toBeLessThanOrEqual(240);
 	});
 });
 

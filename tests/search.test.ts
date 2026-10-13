@@ -672,6 +672,58 @@ describe("goldens", () => {
 	});
 });
 
+describe("structured output obeys the text bounds", () => {
+	const structuredSize = async (
+		matches: unknown[],
+		input: Partial<SearchInput>,
+		maxChars?: number,
+	) => {
+		const { client } = testDeps(
+			mockZoektFetch({
+				"/search": () =>
+					Response.json({
+						result: {
+							Stats: { FileCount: 1, MatchCount: matches.length },
+							FileMatches: [zfile("r", "big.txt", matches)],
+						},
+					}),
+			}),
+		);
+		const parsed = searchSchema.parse({ query: "q", ...input });
+		return executeSearch(client, parsed, { signal: new AbortController().signal }, { maxChars });
+	};
+
+	test("a huge first file keeps only the lines printed whole", async () => {
+		const matches = Array.from({ length: 50 }, (_, i) => matchAt(i + 1, `${"x".repeat(200)}${i}`));
+		const { text, structured } = await structuredSize(
+			matches,
+			{ maxMatchesPerFile: 50, contextLines: 0 },
+			1000,
+		);
+
+		expect(text).toContain("[output truncated]");
+		expect(structured.truncation.reasons).toContain("outputBudget");
+		const kept = structured.files[0]?.lines ?? [];
+		expect(kept.length).toBeGreaterThan(0);
+		expect(kept.length).toBeLessThan(50);
+		for (const l of kept) expect(text).toContain(`${l.line}:${l.text}`);
+		expect(JSON.stringify(structured).length).toBeLessThan(3 * 1000);
+	});
+
+	test("long lines are clipped like the text rows", async () => {
+		const matches = Array.from({ length: 50 }, (_, i) => matchAt(i + 1, "y".repeat(5000)));
+		const { structured } = await structuredSize(matches, {
+			maxMatchesPerFile: 50,
+			contextLines: 0,
+		});
+
+		for (const l of structured.files[0]?.lines ?? []) {
+			expect(l.text.length).toBeLessThanOrEqual(240);
+		}
+		expect(JSON.stringify(structured).length).toBeLessThan(3 * DEFAULT_OUTPUT_CHARS);
+	});
+});
+
 describe("executeSearch", () => {
 	const run = (routes: Parameters<typeof mockZoektFetch>[0], input: Partial<SearchInput> = {}) => {
 		const fetch = mockZoektFetch(routes);

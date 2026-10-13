@@ -131,6 +131,11 @@ export function normalizeSearch(response: SearchResponse, opts: NormalizeOptions
 	};
 }
 
+/**
+ * Zoekt gives no other signal for files it skipped (binary, too large): it indexes a stub whose
+ * first line starts with `NOT-INDEXED`. Heuristic: a real file whose first line begins with that
+ * word is shown as not indexed too.
+ */
 const NOT_INDEXED = /^NOT-INDEXED\b/;
 
 function isNotIndexed(file: SearchFile) {
@@ -172,15 +177,33 @@ function symbolSuffix(symbols: SearchSymbol[]) {
 	return `  [${inner}]`;
 }
 
+/** The rows of one line: a `--` gap marker when it does not follow `prev`, then the line itself. */
+function lineRows(l: SearchLine, prev: number): string[] {
+	const focus = l.ranges?.[0];
+	const suffix = l.match && l.symbols?.length ? symbolSuffix(l.symbols) : "";
+	const row = `${l.n}${l.match ? ":" : "-"}${clipLine(l.text, { focus })}${suffix}`;
+	return prev > 0 && l.n !== prev + 1 ? ["--", row] : [row];
+}
+
+/** How many leading lines of `file` are rendered whole within the first `limit` characters. */
+function linesWithin(file: SearchFile, withBranches: boolean, limit: number): number {
+	if (isNotIndexed(file)) return file.lines.length;
+	let used = fileHeader(file, withBranches).length;
+	let prev = 0;
+	for (const [i, l] of file.lines.entries()) {
+		for (const row of lineRows(l, prev)) used += 1 + row.length;
+		if (used > limit) return i;
+		prev = l.n;
+	}
+	return file.lines.length;
+}
+
 function renderFile(file: SearchFile, withBranches: boolean): string {
 	const out = [fileHeader(file, withBranches)];
 	if (!isNotIndexed(file)) {
 		let prev = 0;
 		for (const l of file.lines) {
-			if (prev > 0 && l.n !== prev + 1) out.push("--");
-			const focus = l.ranges?.[0];
-			const suffix = l.match && l.symbols?.length ? symbolSuffix(l.symbols) : "";
-			out.push(`${l.n}${l.match ? ":" : "-"}${clipLine(l.text, { focus })}${suffix}`);
+			out.push(...lineRows(l, prev));
 			prev = l.n;
 		}
 		if (file.hiddenMatchLines > 0) {
@@ -265,6 +288,16 @@ export function capSearch(model: SearchModel, options: CapOptions = {}): SearchM
 		const first = blocks[0] ?? "";
 		firstClipped = first.length > firstLimit;
 		blocks[0] = hardClip(first, firstLimit);
+	}
+
+	// The structured output must not outgrow the text: keep only the first file's lines that
+	// were printed whole. Totals and the truncation summary are unchanged ("outputBudget" says it).
+	const [head] = files;
+	if (head && firstClipped) {
+		files[0] = {
+			...head,
+			lines: head.lines.slice(0, linesWithin(head, shownBranches, firstLimit)),
+		};
 	}
 
 	const hiddenMatchLines = files.reduce((n, f) => n + f.hiddenMatchLines, 0);

@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { clipLine } from "../clip.js";
-import { MAX_LINE_LENGTH } from "../file-format.js";
+import { clipLine, MAX_LINE_CHARS } from "../clip.js";
 import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import {
 	capSearch,
@@ -70,7 +69,7 @@ const searchLineSchema = z.object({
 	text: z
 		.string()
 		.describe(
-			`Line text without the line ending; indentation kept, clipped to ${MAX_LINE_LENGTH} characters around the first match`,
+			`Line text without the line ending; indentation kept, clipped to ${MAX_LINE_CHARS} characters around the first match, as in the text output. When the output budget cuts the first file, only the lines printed whole are listed`,
 		),
 	isMatch: z.boolean().describe("true for a matching line, false for a context line"),
 	symbols: z
@@ -141,7 +140,7 @@ function toSearchOutput(model: SearchModel): SearchOutput {
 			filenameMatch: f.filenameMatch,
 			lines: f.lines.map((l) => ({
 				line: l.n,
-				text: clipLine(l.text, { focus: l.ranges?.[0], max: MAX_LINE_LENGTH }),
+				text: clipLine(l.text, { focus: l.ranges?.[0] }),
 				isMatch: l.match,
 				...(l.symbols?.length ? { symbols: l.symbols } : {}),
 			})),
