@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Real Zoekt fixtures (internal).
+- CI now tests the built `dist/` on Node 22 and 24 with a stdio smoke test (internal).
 
 ### Removed
 

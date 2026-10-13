@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint
@@ -77,3 +84,33 @@ jobs:
         with:
           name: dist
           path: dist/
+
+  dist-smoke:
+    name: Dist smoke (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Print version
+        run: node dist/index.js --version
+
+      - name: Print help
+        run: node dist/index.js --help
+
+      - name: Stdio smoke test
+        run: node scripts/smoke-stdio.mjs --entry dist/index.js

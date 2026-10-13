@@ -94,6 +94,12 @@ ZOEKT_URL=http://localhost:6070 bun run dev
 bun test
 ```
 
+To check the built bundle the way `npx` users run it (plain Node, stdio):
+
+```bash
+bun run build && bun run smoke -- --entry dist/index.js
+```
+
 Tests run against real Zoekt responses captured in `tests/fixtures/zoekt`. Docker is only
 needed to refresh them:
 
