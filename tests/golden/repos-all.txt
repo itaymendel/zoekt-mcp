@@ -1,0 +1,5 @@
+3 repositories indexed — showing 1-3.
+
+example.test/alpha  main@2f77c54, main-old@3a2a361, feature@115f341  13 files  448 B
+example.test/beta  HEAD@4c476ff  1 file  62 B
+example.test/delta  HEAD@91e6623  2 files  63 B

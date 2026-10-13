@@ -1,0 +1,138 @@
+import { describe, expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
+import { createLogger } from "../src/logger.js";
+import { ZoektClient } from "../src/zoekt/client.js";
+import { ZoektProtocolError } from "../src/zoekt/errors.js";
+import { escapeRegex, exactRepoAtom, quoteArg, repoListQuery } from "../src/zoekt/query.js";
+import { ApiResponseSchema } from "../src/zoekt/types.js";
+import { CASES_DIR } from "./helpers/fixture-repo.js";
+import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
+
+const parse = (value: unknown) => ApiResponseSchema.parse(value);
+
+describe("tolerant schemas", () => {
+	test("every captured search/repos fixture parses", () => {
+		const names = readdirSync(CASES_DIR)
+			.filter((f) => /^(search|list)-/.test(f) && !f.includes("error"))
+			.map((f) => f.replace(/\.json$/, ""));
+		expect(names.length).toBeGreaterThanOrEqual(6);
+		for (const name of names) {
+			const { response } = loadCase(name);
+			expect(() => parse(response.body)).not.toThrow();
+		}
+	});
+
+	test("FileMatches: null", () => {
+		expect(parse({ result: { FileMatches: null } }).result?.FileMatches).toEqual([]);
+	});
+
+	test("Before: null and After: null", () => {
+		const out = parse({
+			result: {
+				FileMatches: [
+					{
+						FileName: "a",
+						Repo: "r",
+						Matches: [{ LineNum: 1, Fragments: [], Before: null, After: null }],
+					},
+				],
+			},
+		});
+		const match = out.result?.FileMatches[0]?.Matches[0];
+		expect(match?.Before).toBe("");
+		expect(match?.After).toBe("");
+	});
+
+	test("Metadata: null", () => {
+		const out = parse({ repos: { Repos: [{ Name: "r", Metadata: null }] } });
+		expect(out.repos?.Repos[0]?.Metadata).toEqual({});
+	});
+
+	test("Repos: null", () => {
+		expect(parse({ repos: { Repos: null, Stats: { Repos: 0 } } }).repos?.Repos).toEqual([]);
+	});
+
+	test("missing RepoURLs, Stats and Language", () => {
+		const out = parse({ result: { FileMatches: [{ FileName: "a", Repo: "r" }] } });
+		expect(out.result?.RepoURLs).toEqual({});
+		expect(out.result?.Stats).toBeUndefined();
+		expect(out.result?.FileMatches[0]?.Language).toBe("");
+	});
+
+	test("Fragments: null", () => {
+		const out = parse({
+			result: { FileMatches: [{ FileName: "a", Repo: "r", Matches: [{ Fragments: null }] }] },
+		});
+		expect(out.result?.FileMatches[0]?.Matches[0]?.Fragments).toEqual([]);
+	});
+
+	test("unknown extra keys are accepted", () => {
+		expect(() =>
+			parse({ result: { Mystery: 1, FileMatches: [{ FileName: "a", Repo: "r", Extra: [] }] } }),
+		).not.toThrow();
+	});
+
+	test("search-context: Before and After survive parsing", () => {
+		const matches = parse(loadCase("search-context").response.body).result?.FileMatches.flatMap(
+			(f) => f.Matches,
+		);
+		expect(matches?.some((m) => m.Before !== "")).toBe(true);
+		expect(matches?.some((m) => m.After !== "")).toBe(true);
+	});
+
+	test("{} is rejected", () => {
+		expect(() => parse({})).toThrow("neither 'result' nor 'repos'");
+	});
+});
+
+describe("response union", () => {
+	const clientFor = (route: string) =>
+		new ZoektClient({
+			baseUrl: "http://zoekt.test",
+			timeoutMs: 5000,
+			logger: createLogger("error"),
+			fetch: mockZoektFetch({ "/search": route }),
+		});
+
+	test("search() on a repos-only answer explains the repository-listing interpretation", async () => {
+		const error = await clientFor("list-all")
+			.search({ query: 'r:"."' })
+			.catch((e: unknown) => e as Error);
+		expect(error).toBeInstanceOf(ZoektProtocolError);
+		expect((error as Error).message).toContain("interpreted as a repository listing");
+	});
+
+	test("listRepos() on a result answer says it expected a repository listing", async () => {
+		const error = await clientFor("search-multi-fragment")
+			.listRepos('r:"."')
+			.catch((e: unknown) => e as Error);
+		expect(error).toBeInstanceOf(ZoektProtocolError);
+		expect((error as Error).message).toContain("expected repository listing");
+	});
+});
+
+describe("query helpers", () => {
+	test("escapeRegex", () => {
+		expect(escapeRegex("a\\b.c")).toBe("a\\\\b\\.c");
+		expect(escapeRegex("\\.+*?()|[]{}^$")).toBe("\\\\\\.\\+\\*\\?\\(\\)\\|\\[\\]\\{\\}\\^\\$");
+		expect(escapeRegex("plain/path-1")).toBe("plain/path-1");
+	});
+
+	test("quoteArg", () => {
+		expect(quoteArg('a"b\\c')).toBe('"a\\"b\\\\c"');
+		expect(quoteArg("plain")).toBe('"plain"');
+	});
+
+	test("exactRepoAtom", () => {
+		expect(exactRepoAtom("github.com/o/r")).toBe('r:"^github\\\\.com/o/r$"');
+	});
+
+	test("repoListQuery", () => {
+		expect(repoListQuery()).toBe('r:"."');
+		expect(repoListQuery("")).toBe('r:"."');
+		expect(repoListQuery("api")).toBe('r:"(?i)api"');
+		expect(repoListQuery("(?-i)Api")).toBe('r:"(?-i)Api"');
+		expect(repoListQuery("^github\\.com/")).toBe('r:"(?i)^github\\\\.com/"');
+		expect(repoListQuery('a"b')).toBe('r:"(?i)a\\"b"');
+	});
+});

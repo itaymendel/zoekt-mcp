@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createLogger } from "../src/logger.js";
 import { ZoektClient } from "../src/zoekt/client.js";
-import { ALPHA_REPO, BETA_REPO } from "./helpers/fixture-repo.js";
+import { ALPHA_REPO, BETA_REPO, DELTA_REPO } from "./helpers/fixture-repo.js";
 import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
 
 const mockLogger = createLogger("error");
@@ -50,8 +50,26 @@ describe("ZoektClient", () => {
 		expect(fetch.requests[0].searchParams.get("format")).toBe("raw");
 	});
 
-	// Reworked in PR-4 (list_repos moves to `r:` queries and the `{repos}` envelope).
-	test.todo("should list repositories");
+	test("should list repositories via a repo-only query", async () => {
+		const fetch = mockZoektFetch({ "/search": "list-all" });
+		const client = new ZoektClient({
+			baseUrl: "http://zoekt.test",
+			timeoutMs: 5000,
+			logger: mockLogger,
+			fetch,
+		});
+		const repos = await client.listRepos(loadCase("list-all").request.query.q as string, {
+			num: 50,
+			order: "name",
+		});
+
+		expect(repos.Stats?.Repos).toBe(3);
+		expect(repos.Repos.map((r) => r.Name)).toEqual([ALPHA_REPO, BETA_REPO, DELTA_REPO]);
+		const params = fetch.requests[0]?.searchParams;
+		expect(params?.get("q")).toBe(loadCase("list-all").request.query.q as string);
+		expect(params?.get("num")).toBe("50");
+		expect(params?.get("order")).toBe("name");
+	});
 
 	test("should strip trailing slash from base URL", async () => {
 		const { client, fetch } = createClient("http://localhost:6070/");
