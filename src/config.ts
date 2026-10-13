@@ -4,7 +4,10 @@ const LogLevelSchema = z.enum(["debug", "info", "warn", "error"]);
 const TransportSchema = z.enum(["http", "stdio"]);
 
 const ConfigSchema = z.object({
-	zoektUrl: z.url(),
+	zoektUrl: z.url({
+		error: (issue) =>
+			issue.input === undefined ? "ZOEKT_URL (or --url) is required" : "must be a valid URL",
+	}),
 	mcpPort: z.coerce.number().int().min(1).max(65535).default(3000),
 	mcpHost: z.string().default("0.0.0.0"),
 	mcpTransport: TransportSchema.default("http"),
