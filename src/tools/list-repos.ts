@@ -45,6 +45,56 @@ Use the exact names as \`repo\` in read_file and as \`r:"^name$"\` in search.
 - \`{ "filter": "^github\\\\.com/myorg/" }\`
 - \`{ "limit": 50, "offset": 50 }\``;
 
+export const repoInfoSchema = z.object({
+	name: z.string().describe("Exact repository name; use as `repo` in read_file"),
+	url: z.string().optional().describe("Repository URL, when Zoekt knows one"),
+	branches: z
+		.array(
+			z.object({
+				name: z.string().describe("Branch name; HEAD is the default branch"),
+				sha: z.string().describe("Indexed commit SHA"),
+			}),
+		)
+		.describe("Indexed branches"),
+	files: z.number().int().describe("Indexed documents"),
+	sizeBytes: z.number().int().describe("Size of the indexed content in bytes"),
+	indexedAt: z.string().optional().describe("RFC 3339 index time; absent when unknown"),
+	metadata: z.record(z.string(), z.string()).optional().describe("Repository metadata, if any"),
+});
+
+export const listReposOutputSchema = z.object({
+	filter: z.string().optional().describe("The filter as given; absent when none"),
+	total: z.number().int().describe("Matching repositories before paging"),
+	offset: z.number().int().describe("Repositories skipped"),
+	limit: z.number().int().describe("Page size requested"),
+	truncated: z.boolean().describe("More repositories exist after this page"),
+	nextOffset: z.number().int().optional().describe("`offset` for the next page; set iff truncated"),
+	repos: z.array(repoInfoSchema).describe("This page, sorted by name"),
+});
+
+export type ListReposOutput = z.infer<typeof listReposOutputSchema>;
+
+/** The public projection of the repository listing. */
+export function toListReposOutput(list: RepoList): ListReposOutput {
+	return {
+		...(list.filter !== undefined ? { filter: list.filter } : {}),
+		total: list.total,
+		offset: list.offset,
+		limit: list.limit,
+		truncated: list.truncated,
+		...(list.nextOffset !== undefined ? { nextOffset: list.nextOffset } : {}),
+		repos: list.repos.map((r) => ({
+			name: r.name,
+			...(r.url !== undefined ? { url: r.url } : {}),
+			branches: r.branches.map((b) => ({ name: b.name, sha: b.sha })),
+			files: r.files,
+			sizeBytes: r.sizeBytes,
+			...(r.indexedAt !== undefined ? { indexedAt: r.indexedAt } : {}),
+			...(r.metadata !== undefined ? { metadata: r.metadata } : {}),
+		})),
+	};
+}
+
 export function normalizeRepoList(
 	wire: RepoListWire,
 	{ filter, limit, offset }: { filter?: string; limit: number; offset: number },
@@ -90,7 +140,7 @@ export async function executeListRepos(
 	client: ZoektClient,
 	input: ListReposInput,
 	ctx: ToolContext,
-): Promise<ToolResult<RepoList>> {
+): Promise<ToolResult<ListReposOutput>> {
 	const { filter, limit, offset } = input;
 	if (offset + limit > MAX_WINDOW) {
 		throw new Error(
@@ -103,5 +153,5 @@ export async function executeListRepos(
 		{ signal: ctx.signal },
 	);
 	const data = normalizeRepoList(wire, { filter, limit, offset });
-	return { text: formatRepoList(data), data };
+	return { text: formatRepoList(data), structured: toListReposOutput(data) };
 }

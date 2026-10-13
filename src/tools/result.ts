@@ -1,7 +1,8 @@
-/** What a tool's execute function returns: the text shown to the model, plus optional typed data. */
-export interface ToolResult<T = unknown> {
+/** What a tool's execute function returns: the text shown to the model and the structured payload. */
+export interface ToolResult<T> {
 	text: string;
-	data?: T;
+	/** The public `structuredContent`; must satisfy the tool's `outputSchema`. */
+	structured: T;
 	/** Small scalar facts about the call, logged at debug level on completion. */
 	summary?: Record<string, string | number | boolean>;
 }
