@@ -78,16 +78,38 @@ export function createHttpServer({
 	logger,
 }: HttpServerOptions): {
 	start: () => Promise<void>;
+	stop: () => Promise<void>;
 } {
 	const sessions = new Map<string, SessionEntry>();
-	let httpServer: Server;
+	let httpServer: Server | undefined;
+
+	const onSignal = (): void => {
+		void stop();
+	};
+
+	async function stop(): Promise<void> {
+		process.off("SIGINT", onSignal);
+		process.off("SIGTERM", onSignal);
+		clearInterval(cleanupInterval);
+		const server = httpServer;
+		if (!server) return;
+		httpServer = undefined;
+
+		logger.info("Shutting down HTTP server");
+		for (const [sessionId, entry] of sessions) {
+			closeServer(entry.server, sessionId, logger);
+		}
+		await new Promise<void>((resolve) => {
+			server.close(() => resolve());
+		});
+	}
 
 	const cleanupInterval = setInterval(() => {
 		const now = Date.now();
 		for (const [sessionId, entry] of sessions) {
 			if (now - entry.lastActivity > SESSION_TTL_MS) {
 				logger.info({ sessionId }, "Cleaning up stale session");
-				entry.server.close();
+				closeServer(entry.server, sessionId, logger);
 				sessions.delete(sessionId);
 			}
 		}
@@ -137,32 +159,31 @@ export function createHttpServer({
 	return {
 		start: async () => {
 			return new Promise((resolve, reject) => {
-				httpServer = createServer(handleRequest);
+				const server = createServer(handleRequest);
+				httpServer = server;
 
-				httpServer.on("error", (error) => {
+				server.on("error", (error) => {
 					logger.error({ error: getErrorMessage(error) }, "HTTP server error");
 					reject(error);
 				});
 
-				httpServer.listen(port, host, () => {
+				server.listen(port, host, () => {
 					logger.info({ host, port, url: `http://${host}:${port}` }, "HTTP server started");
 					resolve();
 				});
 
-				process.on("SIGINT", () => shutdown());
-				process.on("SIGTERM", () => shutdown());
-
-				function shutdown(): void {
-					logger.info("Shutting down HTTP server");
-					clearInterval(cleanupInterval);
-					for (const entry of sessions.values()) {
-						entry.server.close();
-					}
-					httpServer.close();
-				}
+				process.on("SIGINT", onSignal);
+				process.on("SIGTERM", onSignal);
 			});
 		},
+		stop,
 	};
+}
+
+function closeServer(server: McpServer, sessionId: string, logger: Logger): void {
+	server.close().catch((error) => {
+		logger.warn({ sessionId, error: getErrorMessage(error) }, "Failed to close MCP server");
+	});
 }
 
 function jsonResponse(res: ServerResponse, data: unknown, status = 200): void {
@@ -206,11 +227,12 @@ function handleSSE(
 	// Handle client disconnect. Node emits "close" on res when the connection drops,
 	// Bun only on req, so listen to both and clean up once.
 	const onClose = () => {
+		// Delete first (idempotent) so sessions closed via another path don't linger until the TTL sweep.
+		sessions.delete(sessionId);
 		if (session.closed) return;
 		logger.info({ sessionId }, "SSE connection closed");
 		session.closed = true;
-		sessions.delete(sessionId);
-		server.close();
+		closeServer(server, sessionId, logger);
 	};
 	req.on("close", onClose);
 	res.on("close", onClose);
