@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createLogger } from "../src/logger.js";
-import { MAX_ERROR_BODY, ZoektClient } from "../src/zoekt/client.js";
+import { MAX_ERROR_BODY } from "../src/zoekt/client.js";
 import {
 	ZoektAmbiguousFileError,
 	ZoektFileNotFoundError,
@@ -11,16 +10,16 @@ import {
 } from "../src/zoekt/errors.js";
 import { startFakeZoekt } from "./helpers/fake-zoekt.js";
 import { ALPHA_REPO, DELTA_REPO } from "./helpers/fixture-repo.js";
+import { hangingFetch } from "./helpers/hanging-fetch.js";
+import { testDeps } from "./helpers/test-deps.js";
 import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
-
-const mockLogger = createLogger("error");
 
 function clientWith(
 	fetch: typeof globalThis.fetch,
 	timeoutMs = 5000,
 	baseUrl = "http://zoekt.test",
 ) {
-	return new ZoektClient({ baseUrl, timeoutMs, logger: mockLogger, fetch });
+	return testDeps(fetch, { baseUrl, timeoutMs }).client;
 }
 
 const stubResponse = (body: string, init: ResponseInit & { contentType?: string } = {}) => {
@@ -130,10 +129,7 @@ describe("C1 error bodies", () => {
 });
 
 describe("C3 abort and network errors", () => {
-	const honoringSignal = ((_url: unknown, init?: RequestInit) =>
-		new Promise<Response>((_resolve, reject) => {
-			init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-		})) as unknown as typeof fetch;
+	const honoringSignal = hangingFetch().fetch;
 
 	test("aborts when signal aborted", async () => {
 		const client = clientWith(honoringSignal);
@@ -181,9 +177,7 @@ describe("C3 abort and network errors", () => {
 		const { url } = fake;
 		await fake.close();
 		const error = await rejection(
-			new ZoektClient({ baseUrl: url, timeoutMs: 5000, logger: mockLogger }).search({
-				query: "x",
-			}),
+			testDeps(undefined, { baseUrl: url }).client.search({ query: "x" }),
 		);
 
 		expect(error.message).toBe(`Cannot reach Zoekt at ${url} (ECONNREFUSED)`);
@@ -192,7 +186,7 @@ describe("C3 abort and network errors", () => {
 	test("a real unanswered request times out", async () => {
 		const fake = await startFakeZoekt({ hang: true });
 		try {
-			const client = new ZoektClient({ baseUrl: fake.url, timeoutMs: 100, logger: mockLogger });
+			const { client } = testDeps(undefined, { baseUrl: fake.url, timeoutMs: 100 });
 			const error = await rejection(client.search({ query: "x" }));
 
 			expect(error.message).toBe("Zoekt request timed out after 100ms");

@@ -31,7 +31,7 @@ export interface HttpServerOptions {
 }
 
 export interface HttpServer {
-	/** The underlying node:http server (lets tests observe its events). */
+	/** @internal test seam: the underlying node:http server, so tests can observe its events. */
 	readonly server: Server;
 	/** Resolves the actually bound address (supports port 0). */
 	start(): Promise<{ host: string; port: number }>;

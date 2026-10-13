@@ -4,6 +4,7 @@ import { normalizeRepoList } from "../src/tools/list-repos.js";
 import { formatBytes, formatRepoList, redactUrl } from "../src/utils.js";
 import { RepoListWireSchema } from "../src/zoekt/types.js";
 import { startFakeZoekt } from "./helpers/fake-zoekt.js";
+import { hangingFetch } from "./helpers/hanging-fetch.js";
 import { connectTestClient, resultText, type TestMcp } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
 import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
@@ -310,32 +311,21 @@ describe("redactUrl", () => {
 
 describe("cancellation through MCP", () => {
 	test("cancelling a hanging call aborts the upstream Zoekt signal", async () => {
-		let upstream: AbortSignal | undefined;
-		let started: () => void = () => {};
-		const hasStarted = new Promise<void>((resolve) => {
-			started = resolve;
-		});
-		const hanging = ((_url: unknown, init?: RequestInit) => {
-			upstream = init?.signal ?? undefined;
-			started();
-			return new Promise<Response>((_resolve, reject) => {
-				init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-			});
-		}) as typeof fetch;
+		const hanging = hangingFetch();
 
-		mcp = await connectTestClient(testDeps(hanging));
+		mcp = await connectTestClient(testDeps(hanging.fetch));
 		const controller = new AbortController();
 		const call = mcp.client
 			.callTool({ name: "list_repos", arguments: {} }, { signal: controller.signal })
 			.catch((e: unknown) => e);
-		await hasStarted;
-		expect(upstream?.aborted).toBe(false);
+		const upstream = await hanging.signalSeen;
+		expect(upstream.aborted).toBe(false);
 
 		controller.abort();
 		await call;
-		for (let i = 0; i < 50 && !upstream?.aborted; i++) await Bun.sleep(10);
+		await hanging.aborted;
 
-		expect(upstream?.aborted).toBe(true);
+		expect(upstream.aborted).toBe(true);
 	});
 
 	test("with a real socket: the hanging request is seen by fake-zoekt, then cancelled", async () => {

@@ -46,15 +46,14 @@ export function formatRepoList(list: RepoList): string {
 			? `No repositories match "${filter}". Filters are regexes on the repository name, case-insensitive unless prefixed (?-i).`
 			: "No repositories match. Zoekt has no indexed repositories.";
 	}
-	if (repos.length === 0) {
-		return `${total} ${plural(total, "repository", "repositories")} ${filter ? `match "${filter}"` : "indexed"}, but offset=${offset} is past the end.`;
-	}
+	const subject = `${total} ${plural(total, "repository", "repositories")} ${
+		filter ? `match "${filter}"` : "indexed"
+	}`;
+	if (repos.length === 0) return `${subject}, but offset=${offset} is past the end.`;
 
 	const first = offset + 1;
 	const last = offset + repos.length;
-	const header = `${total} ${plural(total, "repository", "repositories")} ${
-		filter ? `match "${filter}"` : "indexed"
-	} — showing ${first}-${last}.`;
+	const header = `${subject} — showing ${first}-${last}.`;
 	const lines = repos.map(formatRepoLine);
 	const parts = [header, "", ...lines];
 	if (list.truncated) {
@@ -67,10 +66,10 @@ export function formatRepoList(list: RepoList): string {
 }
 
 function formatRepoLine(repo: RepoInfo): string {
-	const ordered = [
-		...repo.branches.filter((b) => b.name === "HEAD"),
-		...repo.branches.filter((b) => b.name !== "HEAD"),
-	];
+	const head: RepoInfo["branches"] = [];
+	const rest: RepoInfo["branches"] = [];
+	for (const b of repo.branches) (b.name === "HEAD" ? head : rest).push(b);
+	const ordered = [...head, ...rest];
 	const shown = ordered.slice(0, MAX_BRANCHES_SHOWN).map((b) => `${b.name}@${b.sha.slice(0, 7)}`);
 	const extra = ordered.length - shown.length;
 	if (extra > 0) shown.push(`+${extra} more`);

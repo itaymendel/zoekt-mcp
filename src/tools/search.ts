@@ -48,7 +48,6 @@ export const searchDescription = `Search code using Zoekt.
 - \`sym:MyClass\` - Find class/type definitions
 
 ### Special Queries
-- \`type:repo\` - List repositories instead of searching content
 - \`case:yes\` - Case-sensitive search (default is case-insensitive)
 - \`content:pattern\` - Explicitly search file content
 

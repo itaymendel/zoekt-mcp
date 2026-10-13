@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
-import { createLogger } from "../src/logger.js";
-import { ZoektClient } from "../src/zoekt/client.js";
 import { ZoektProtocolError } from "../src/zoekt/errors.js";
 import { escapeRegex, exactRepoAtom, quoteArg, repoListQuery } from "../src/zoekt/query.js";
 import { ApiResponseSchema } from "../src/zoekt/types.js";
 import { CASES_DIR } from "./helpers/fixture-repo.js";
+import { testDeps } from "./helpers/test-deps.js";
 import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
 
 const parse = (value: unknown) => ApiResponseSchema.parse(value);
@@ -86,13 +85,7 @@ describe("tolerant schemas", () => {
 });
 
 describe("response union", () => {
-	const clientFor = (route: string) =>
-		new ZoektClient({
-			baseUrl: "http://zoekt.test",
-			timeoutMs: 5000,
-			logger: createLogger("error"),
-			fetch: mockZoektFetch({ "/search": route }),
-		});
+	const clientFor = (route: string) => testDeps(mockZoektFetch({ "/search": route })).client;
 
 	test("search() on a repos-only answer explains the repository-listing interpretation", async () => {
 		const error = await clientFor("list-all")

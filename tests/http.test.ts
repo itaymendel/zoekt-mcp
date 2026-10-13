@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { connect } from "node:net";
 import { Writable } from "node:stream";
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { type Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import pino from "pino";
 import { createHttpServer } from "../src/http.js";
 import { createLogger } from "../src/logger.js";
@@ -13,6 +13,7 @@ import {
 	type TestServer,
 	type TestServerOptions,
 } from "./helpers/http-harness.js";
+import { makeTestClient } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
 
 const servers: TestServer[] = [];
@@ -41,7 +42,7 @@ const postMcp = (baseUrl: string, body: string, extraHeaders: Record<string, str
 
 /** Connects a v2 client, lists tools, calls search, and always closes the client. */
 async function roundTrip(baseUrl: string, options?: ConstructorParameters<typeof Client>[1]) {
-	const client = new Client({ name: "test-client", version: "0.0.0" }, options);
+	const client = makeTestClient(options);
 	try {
 		await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`)));
 		const { tools } = await client.listTools();
@@ -313,7 +314,7 @@ describe("bearer auth", () => {
 
 	test("correct token completes a tool call via requestInit headers", async () => {
 		const { baseUrl } = await start({ authToken: TOKEN });
-		const client = new Client({ name: "test-client", version: "0.0.0" });
+		const client = makeTestClient();
 		try {
 			await client.connect(
 				new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), {
@@ -419,7 +420,7 @@ describe("graceful shutdown", () => {
 			zoektTimeoutMs: 30_000,
 			shutdownTimeoutMs: 300,
 		});
-		const client = new Client({ name: "test-client", version: "0.0.0" });
+		const client = makeTestClient();
 		try {
 			await client.connect(new StreamableHTTPClientTransport(new URL(`${server.baseUrl}/mcp`)));
 			const pending = client

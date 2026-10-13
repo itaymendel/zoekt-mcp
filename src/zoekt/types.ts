@@ -76,8 +76,11 @@ export const RepoBranchSchema = z.object({
 export const RepoEntrySchema = z.object({
 	Name: z.string(),
 	URL: str,
-	/** RFC 3339; Go's zero time is `0001-01-01T00:00:00Z`. */
-	IndexTime: str,
+	/** RFC 3339, or undefined when Zoekt reports "unknown" (Go zero time or the Unix epoch). */
+	IndexTime: z
+		.string()
+		.nullish()
+		.transform((v) => (v && new Date(v).getTime() > 0 ? v : undefined)),
 	Branches: list(RepoBranchSchema),
 	Files: num,
 	Metadata: dict,
@@ -127,7 +130,6 @@ export interface SearchOptions {
 
 export interface ListReposOptions {
 	num?: number;
-	order?: "name" | "revname" | "size" | "time";
 }
 
 /** Canonical repository listing returned by `ZoektClient.listRepos` consumers (no nulls). */

@@ -7,11 +7,16 @@ export interface TestMcp {
 	close(): Promise<void>;
 }
 
+/** A v2 MCP `Client` named "test-client" (not yet connected). */
+export function makeTestClient(options?: ConstructorParameters<typeof Client>[1]): Client {
+	return new Client({ name: "test-client", version: "0.0.0" }, options);
+}
+
 /** An in-memory v2 MCP `Client` connected to a fresh `createMcpServer(deps)`. */
 export async function connectTestClient(deps: ServerDeps): Promise<TestMcp> {
 	const server = createMcpServer(deps);
 	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-	const client = new Client({ name: "test-client", version: "0.0.0" });
+	const client = makeTestClient();
 	await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 	return { client, close: () => client.close() };
 }

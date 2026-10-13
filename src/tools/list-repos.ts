@@ -46,27 +46,37 @@ export function normalizeRepoList(
 	const total = wire.Stats?.Repos || wire.Repos.length;
 	const end = offset + page.length;
 	const truncated = end < total;
-	return {
-		...(filter ? { filter } : {}),
+	return omitEmpty({
+		filter,
 		total,
 		offset,
 		limit,
 		truncated,
-		...(truncated ? { nextOffset: end } : {}),
-		repos: page.map((r) => {
-			const indexed = r.IndexTime ? new Date(r.IndexTime) : undefined;
-			return {
+		nextOffset: truncated ? end : undefined,
+		repos: page.map((r) =>
+			omitEmpty({
 				name: r.Name,
-				...(r.URL ? { url: r.URL } : {}),
+				url: r.URL,
 				branches: r.Branches.map((b) => ({ name: b.Name, sha: b.Version })),
 				files: r.Files,
 				sizeBytes: r.Size,
-				// Go's zero time (0001-01-01) and the Unix epoch both mean "unknown".
-				...(indexed && indexed.getTime() > 0 ? { indexedAt: r.IndexTime } : {}),
-				...(Object.keys(r.Metadata).length ? { metadata: r.Metadata } : {}),
-			};
-		}),
-	};
+				indexedAt: r.IndexTime,
+				metadata: r.Metadata,
+			}),
+		),
+	});
+}
+
+/** Drops undefined, "" and empty-object values (not 0, false or arrays) so the canonical shape has no sentinels. */
+function omitEmpty<T extends object>(obj: T): T {
+	return Object.fromEntries(
+		Object.entries(obj).filter(
+			([, v]) =>
+				v !== undefined &&
+				v !== "" &&
+				!(typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length === 0),
+		),
+	) as T;
 }
 
 export async function executeListRepos(
@@ -82,7 +92,7 @@ export async function executeListRepos(
 	}
 	const wire = await client.listRepos(
 		repoListQuery(filter),
-		{ num: offset + limit, order: "name" },
+		{ num: offset + limit },
 		{ signal: ctx.signal },
 	);
 	const data = normalizeRepoList(wire, { filter, limit, offset });

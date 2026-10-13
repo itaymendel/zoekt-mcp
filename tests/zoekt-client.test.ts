@@ -1,17 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { createLogger } from "../src/logger.js";
-import { ZoektClient } from "../src/zoekt/client.js";
 import { ALPHA_REPO, BETA_REPO, DELTA_REPO } from "./helpers/fixture-repo.js";
+import { testDeps } from "./helpers/test-deps.js";
 import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
-
-const mockLogger = createLogger("error");
 
 function createClient(baseUrl = "http://localhost:6070") {
 	const fetch = mockZoektFetch({
 		"/search": "search-multi-fragment",
 		"/print": "print-ok",
 	});
-	const client = new ZoektClient({ baseUrl, timeoutMs: 5000, logger: mockLogger, fetch });
+	const { client } = testDeps(fetch, { baseUrl });
 	return { client, fetch };
 }
 
@@ -52,15 +49,9 @@ describe("ZoektClient", () => {
 
 	test("should list repositories via a repo-only query", async () => {
 		const fetch = mockZoektFetch({ "/search": "list-all" });
-		const client = new ZoektClient({
-			baseUrl: "http://zoekt.test",
-			timeoutMs: 5000,
-			logger: mockLogger,
-			fetch,
-		});
+		const { client } = testDeps(fetch);
 		const repos = await client.listRepos(loadCase("list-all").request.query.q as string, {
 			num: 50,
-			order: "name",
 		});
 
 		expect(repos.Stats?.Repos).toBe(3);

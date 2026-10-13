@@ -48,12 +48,18 @@ export interface PrintResult {
 	truncated: boolean;
 }
 
+/** A successful (2xx) answer; non-2xx never leaves `request()`. */
 interface RawResponse {
-	status: number;
-	statusText: string;
 	contentType: string;
+	isHtml: boolean;
 	bytes: Uint8Array;
 	truncated: boolean;
+}
+
+/** An error body, decoded once: the full text and the capped form used in messages. */
+interface ErrorBody {
+	text: string;
+	shown: string;
 }
 
 export class ZoektClient {
@@ -83,13 +89,17 @@ export class ZoektClient {
 		return { result: data.result };
 	}
 
-	/** Runs a repo-only query (see `repoListQuery`); Zoekt answers with the `{repos}` envelope. */
+	/**
+	 * Runs a repo-only query (see `repoListQuery`); Zoekt answers with the `{repos}` envelope.
+	 * Live-verified: `order=name` sorts ascending before `num` truncates, `Stats.Repos` is the
+	 * pre-`num` total, and an unknown `order` value is a 418.
+	 */
 	async listRepos(
 		rawQuery: string,
-		{ num, order }: ListReposOptions = {},
+		{ num }: ListReposOptions = {},
 		req: RequestOptions = {},
 	): Promise<RepoListWire> {
-		const data = await this.searchEndpoint({ q: rawQuery, num, order }, req);
+		const data = await this.searchEndpoint({ q: rawQuery, num, order: "name" }, req);
 		if (!data.repos) {
 			throw new ZoektProtocolError(
 				`Zoekt returned file results; expected repository listing for query: ${rawQuery}`,
@@ -114,42 +124,27 @@ export class ZoektClient {
 			{ r: repo, f: path, b: branch, format: "raw" },
 			"text/plain",
 			req,
-			opts.maxBytes,
+			{
+				maxBytes: opts.maxBytes,
+				on418: ({ text }) => {
+					const listed = /^ambiguous result: \[(.*)\]/s.exec(text.trim());
+					if (!listed) return undefined;
+					const files = (listed[1] ?? "").split(/\s+/).filter(Boolean);
+					return files.length === 0
+						? new ZoektFileNotFoundError(repo, path, branch)
+						: new ZoektAmbiguousFileError(repo, path, Math.max(2, files.length));
+				},
+			},
 		);
 
-		if (raw.status === 418) {
-			const body = decode(raw.bytes);
-			const listed = /^ambiguous result: \[(.*)\]/s.exec(body.trim());
-			if (!listed) throw this.httpError("print", raw);
-			const files = (listed[1] ?? "").split(/\s+/).filter(Boolean);
-			if (files.length === 0) throw new ZoektFileNotFoundError(repo, path, branch);
-			throw new ZoektAmbiguousFileError(repo, path, Math.max(2, files.length));
-		}
-		if (raw.status < 200 || raw.status >= 300) throw this.httpError("print", raw);
-
-		if (/text\/html/i.test(raw.contentType)) {
+		if (raw.isHtml) {
 			throw new ZoektProtocolError(
 				"Zoekt /print ignored format=raw and returned an HTML page; is ZOEKT_URL pointing at zoekt-webserver?",
 			);
 		}
-
 		if (!raw.truncated && raw.bytes.length <= NOT_INDEXED_MAX_BYTES) {
-			const stub = /^NOT-INDEXED: (.+)$/.exec(decode(raw.bytes).trim());
-			if (stub) {
-				const detail = stub[1] as string;
-				if (/binary/i.test(detail)) {
-					throw new ZoektFileNotIndexedError(repo, path, "binary", "binary content");
-				}
-				if (/size limit/i.test(detail)) {
-					throw new ZoektFileNotIndexedError(
-						repo,
-						path,
-						"too-large",
-						"larger than the indexer's size limit",
-					);
-				}
-				throw new ZoektFileNotIndexedError(repo, path, "other", detail);
-			}
+			const stub = notIndexedFromStub(decode(raw.bytes), repo, path);
+			if (stub) throw stub;
 		}
 
 		this.logger.debug(
@@ -179,13 +174,11 @@ export class ZoektClient {
 			{ ...params, format: "json" },
 			"application/json",
 			req,
+			{
+				on418: ({ shown }) =>
+					new ZoektQueryError(`Zoekt rejected the request${shown ? `: ${shown}` : ""}`),
+			},
 		);
-
-		if (raw.status === 418) {
-			const body = formatBody(raw);
-			throw new ZoektQueryError(`Zoekt rejected the request${body ? `: ${body}` : ""}`);
-		}
-		if (raw.status < 200 || raw.status >= 300) throw this.httpError("search", raw);
 
 		const text = decode(raw.bytes);
 		let json: unknown;
@@ -207,21 +200,17 @@ export class ZoektClient {
 		return parsed.data;
 	}
 
-	private httpError(endpoint: string, raw: RawResponse): ZoektHttpError {
-		const body = formatBody(raw);
-		return new ZoektHttpError(
-			`Zoekt /${endpoint} failed: HTTP ${raw.status} ${raw.statusText}${body ? `: ${body}` : ""}`,
-			raw.status,
-		);
-	}
-
-	/** The only `fetch` call site: applies the timeout, merges the caller's signal, reads the body. */
+	/**
+	 * The only `fetch` call site: applies the timeout, merges the caller's signal, reads the body
+	 * and classifies the status. Returns 2xx answers and throws for everything else: `on418` may
+	 * map Zoekt's 418 handler errors to a specific error, otherwise a `ZoektHttpError`.
+	 */
 	private async request(
 		endpoint: "search" | "print",
 		params: Record<string, string | number | undefined>,
 		accept: string,
 		req: RequestOptions,
-		maxBytes?: number,
+		{ maxBytes, on418 }: { maxBytes?: number; on418?: (body: ErrorBody) => Error | undefined } = {},
 	): Promise<RawResponse> {
 		const query = buildParams(params);
 		const url = `${this.baseUrl}/${endpoint}?${query}`;
@@ -230,31 +219,35 @@ export class ZoektClient {
 		const timeout = AbortSignal.timeout(this.timeoutMs);
 		const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
 
+		let response: Response;
+		let body: { bytes: Uint8Array; truncated: boolean };
 		try {
-			const response = await this.fetchFn(url, { signal, headers: { Accept: accept } });
-			const { bytes, truncated } = await readBody(
-				response,
-				response.ok ? maxBytes : MAX_ERROR_READ_BYTES,
-			);
-			const raw: RawResponse = {
-				status: response.status,
-				statusText: response.statusText,
-				contentType: response.headers.get("content-type") ?? "",
-				bytes,
-				truncated,
-			};
-			if (response.status >= 400) {
-				this.logger.debug({ status: raw.status, body: decode(bytes) }, "Zoekt returned an error");
-			}
-			return raw;
+			response = await this.fetchFn(url, { signal, headers: { Accept: accept } });
+			body = await readBody(response, response.ok ? maxBytes : MAX_ERROR_READ_BYTES);
 		} catch (error) {
 			throw this.mapFetchError(error, req.signal);
 		}
+
+		const contentType = response.headers.get("content-type") ?? "";
+		const isHtml = /text\/html/i.test(contentType);
+		if (response.ok) return { contentType, isHtml, ...body };
+
+		const text = decode(body.bytes);
+		const error: ErrorBody = { text, shown: formatBody(text, isHtml) };
+		this.logger.debug({ status: response.status, body: text }, "Zoekt returned an error");
+		if (response.status === 418) {
+			const mapped = on418?.(error);
+			if (mapped) throw mapped;
+		}
+		throw new ZoektHttpError(
+			`Zoekt /${endpoint} failed: HTTP ${response.status} ${response.statusText}${error.shown ? `: ${error.shown}` : ""}`,
+			response.status,
+		);
 	}
 
 	private mapFetchError(error: unknown, callerSignal?: AbortSignal): unknown {
 		if (callerSignal?.aborted) return error;
-		if (isNamed(error, "TimeoutError")) {
+		if ((error as { name?: unknown } | null)?.name === "TimeoutError") {
 			return new ZoektError(`Zoekt request timed out after ${this.timeoutMs}ms`, {
 				cause: error,
 			});
@@ -269,24 +262,24 @@ export class ZoektClient {
 	}
 }
 
-function isNamed(error: unknown, name: string): boolean {
-	return typeof error === "object" && error !== null && (error as { name?: unknown }).name === name;
-}
-
-const NETWORK_CODES: Record<string, string> = {
-	ECONNREFUSED: "ECONNREFUSED",
-	ConnectionRefused: "ECONNREFUSED",
-	ENOTFOUND: "ENOTFOUND",
-	EAI_AGAIN: "EAI_AGAIN",
-	ECONNRESET: "ECONNRESET",
-	EHOSTUNREACH: "EHOSTUNREACH",
-};
+const NETWORK_CODES = new Set([
+	"ECONNREFUSED",
+	"ENOTFOUND",
+	"EAI_AGAIN",
+	"ECONNRESET",
+	"EHOSTUNREACH",
+]);
+// ConnectionRefused -> ECONNREFUSED (Bun runtime; tests)
+const CODE_ALIASES: Record<string, string> = { ConnectionRefused: "ECONNREFUSED" };
 
 /** Finds a known network error code on the error or its `cause` chain (undici wraps in "fetch failed"). */
 function networkCode(error: unknown): string | undefined {
 	for (let e: unknown = error, depth = 0; e && depth < 4; depth++) {
 		const code = (e as { code?: unknown }).code;
-		if (typeof code === "string" && NETWORK_CODES[code]) return NETWORK_CODES[code];
+		if (typeof code === "string") {
+			const known = CODE_ALIASES[code] ?? code;
+			if (NETWORK_CODES.has(known)) return known;
+		}
 		e = (e as { cause?: unknown }).cause;
 	}
 	return undefined;
@@ -330,15 +323,26 @@ function decode(bytes: Uint8Array): string {
 }
 
 /** Trimmed, blank-run-collapsed, capped body for error messages; HTML pages are summarized. */
-function formatBody(raw: RawResponse): string {
-	if (/text\/html/i.test(raw.contentType)) {
-		return "<HTML page; is ZOEKT_URL pointing at zoekt-webserver?>";
-	}
-	const text = decode(raw.bytes)
-		.trim()
-		.replace(/\n\s*\n+/g, "\n");
+function formatBody(body: string, isHtml: boolean): string {
+	if (isHtml) return "<HTML page; is ZOEKT_URL pointing at zoekt-webserver?>";
+	const text = body.trim().replace(/\n\s*\n+/g, "\n");
 	if (text.length <= MAX_ERROR_BODY) return text;
 	return `${text.slice(0, MAX_ERROR_BODY)}… (truncated, ${text.length} chars total)`;
+}
+
+/** `[pattern, reason, detail]`: how Zoekt's `NOT-INDEXED: <why>` stub maps to a typed error. */
+const NOT_INDEXED_REASONS: Array<[RegExp, "binary" | "too-large", string]> = [
+	[/binary/i, "binary", "binary content"],
+	[/size limit/i, "too-large", "larger than the indexer's size limit"],
+];
+
+function notIndexedFromStub(body: string, repo: string, path: string) {
+	const why = /^NOT-INDEXED: (.+)$/.exec(body.trim())?.[1];
+	if (why === undefined) return undefined;
+	const hit = NOT_INDEXED_REASONS.find(([re]) => re.test(why));
+	return hit
+		? new ZoektFileNotIndexedError(repo, path, hit[1], hit[2])
+		: new ZoektFileNotIndexedError(repo, path, "other", why);
 }
 
 function buildParams(params: Record<string, string | number | undefined>): URLSearchParams {
