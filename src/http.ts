@@ -87,7 +87,7 @@ export function createHttpServer({
 		for (const [sessionId, entry] of sessions) {
 			if (now - entry.lastActivity > SESSION_TTL_MS) {
 				logger.info({ sessionId }, "Cleaning up stale session");
-				entry.server.close();
+				closeServer(entry.server, sessionId, logger);
 				sessions.delete(sessionId);
 			}
 		}
@@ -155,14 +155,20 @@ export function createHttpServer({
 				function shutdown(): void {
 					logger.info("Shutting down HTTP server");
 					clearInterval(cleanupInterval);
-					for (const entry of sessions.values()) {
-						entry.server.close();
+					for (const [sessionId, entry] of sessions) {
+						closeServer(entry.server, sessionId, logger);
 					}
 					httpServer.close();
 				}
 			});
 		},
 	};
+}
+
+function closeServer(server: McpServer, sessionId: string, logger: Logger): void {
+	server.close().catch((error) => {
+		logger.warn({ sessionId, error: getErrorMessage(error) }, "Failed to close MCP server");
+	});
 }
 
 function jsonResponse(res: ServerResponse, data: unknown, status = 200): void {
@@ -206,11 +212,12 @@ function handleSSE(
 	// Handle client disconnect. Node emits "close" on res when the connection drops,
 	// Bun only on req, so listen to both and clean up once.
 	const onClose = () => {
+		// Delete first (idempotent) so sessions closed via another path don't linger until the TTL sweep.
+		sessions.delete(sessionId);
 		if (session.closed) return;
 		logger.info({ sessionId }, "SSE connection closed");
 		session.closed = true;
-		sessions.delete(sessionId);
-		server.close();
+		closeServer(server, sessionId, logger);
 	};
 	req.on("close", onClose);
 	res.on("close", onClose);
