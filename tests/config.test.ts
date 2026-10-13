@@ -241,9 +241,12 @@ describe("HTTP security keys", () => {
 		});
 
 		test("loopback names are always allowed", () => {
-			for (const host of ["localhost", "127.0.0.1", "127.9.9.9", "::1", "[::1]"]) {
+			for (const host of ["localhost", "127.0.0.1", "127.9.9.9", "::1"]) {
 				expect(loadConfig({}, { ...http, MCP_HOST: host }).mcpHost).toBe(host);
 			}
+			// Bracketed IPv6 is normalized to the bare form node can listen on.
+			expect(loadConfig({}, { ...http, MCP_HOST: "[::1]" }).mcpHost).toBe("::1");
+			expect(loadConfig({ mcpHost: "[::1]" }, http).mcpHost).toBe("::1");
 		});
 
 		test("a token or MCP_ALLOW_UNAUTHENTICATED=true lets it start", () => {

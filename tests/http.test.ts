@@ -3,6 +3,7 @@ import { connect } from "node:net";
 import { Writable } from "node:stream";
 import { type Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import pino from "pino";
+import { loadConfig } from "../src/config.js";
 import { createHttpServer } from "../src/http.js";
 import { createLogger } from "../src/logger.js";
 import { createServerFactory } from "../src/server.js";
@@ -188,6 +189,24 @@ describe("bind address", () => {
 	test("binds 127.0.0.1 by default", async () => {
 		const server = await start();
 		expect(server.host).toBe("127.0.0.1");
+	});
+
+	test("binds the ::1 host that loadConfig produces from [::1]", async () => {
+		const { mcpHost } = loadConfig(
+			{ mcpHost: "[::1]" },
+			{ ZOEKT_URL: "http://localhost:6070", MCP_TRANSPORT: "http" },
+		);
+		let server: TestServer;
+		try {
+			server = await start({ host: mcpHost });
+		} catch (error) {
+			// No IPv6 loopback in this environment.
+			if (["EADDRNOTAVAIL", "EAFNOSUPPORT"].includes((error as NodeJS.ErrnoException).code ?? ""))
+				return;
+			throw error;
+		}
+		expect(server.host).toBe("::1");
+		expect((await fetch(`http://[::1]:${server.port}/healthz`)).status).toBe(200);
 	});
 });
 

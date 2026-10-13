@@ -9,6 +9,10 @@ const TransportSchema = z.enum(["http", "stdio"], { error: 'must be "stdio" or "
 
 const MIN_TOKEN_LENGTH = 16;
 
+/** Defaults shared with createHttpServer so the two layers cannot drift. */
+export const DEFAULT_MAX_BODY_BYTES = 1048576;
+export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10000;
+
 /** Whole-number string within [min, max]; anything else (incl. "1e3", "0x10", "1.5") fails. */
 function intString(min: number, max: number, message: string) {
 	return z
@@ -87,7 +91,11 @@ const ConfigSchema = z.object({
 			message: "credentials are not valid percent-encoding",
 		}),
 	mcpPort: intString(1, 65535, "must be an integer between 1 and 65535").default(3000),
-	mcpHost: z.string().default("127.0.0.1"),
+	// node's listen() rejects "[::1]", so bracketed IPv6 literals are stored bare.
+	mcpHost: z
+		.string()
+		.transform((host) => host.replace(/^\[(.*)\]$/, "$1"))
+		.default("127.0.0.1"),
 	mcpTransport: TransportSchema.default("stdio"),
 	logLevel: LogLevelSchema.default("info"),
 	zoektTimeoutMs: intString(
@@ -102,12 +110,12 @@ const ConfigSchema = z.object({
 		1024,
 		16777216,
 		"must be an integer between 1024 and 16777216 (bytes)",
-	).default(1048576),
+	).default(DEFAULT_MAX_BODY_BYTES),
 	mcpShutdownTimeoutMs: intString(
 		0,
 		120000,
 		"must be an integer between 0 and 120000 (milliseconds)",
-	).default(10000),
+	).default(DEFAULT_SHUTDOWN_TIMEOUT_MS),
 });
 
 type RawKey = keyof z.input<typeof ConfigSchema>;
@@ -178,10 +186,10 @@ export class ConfigError extends Error {
 	}
 }
 
-/** `localhost`, 127.0.0.0/8 and ::1 (bracketed or not). */
+/** `localhost`, 127.0.0.0/8 and ::1 (mcpHost is already unbracketed). */
 function isLoopbackHost(host: string): boolean {
 	const h = host.trim().toLowerCase();
-	return h === "localhost" || h === "::1" || h === "[::1]" || /^127(\.\d{1,3}){3}$/.test(h);
+	return h === "localhost" || h === "::1" || /^127(\.\d{1,3}){3}$/.test(h);
 }
 
 /** Trimmed value, or undefined when missing, empty or whitespace-only. */

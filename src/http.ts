@@ -9,6 +9,7 @@ import {
 	type McpServer,
 } from "@modelcontextprotocol/server";
 import pkg from "../package.json";
+import { DEFAULT_MAX_BODY_BYTES, DEFAULT_SHUTDOWN_TIMEOUT_MS } from "./config.js";
 import type { Logger } from "./logger.js";
 import { getErrorMessage } from "./utils.js";
 
@@ -18,7 +19,7 @@ export interface HttpServerOptions {
 	host: string;
 	port: number;
 	logger: Logger;
-	/** After this long, close() drops connections that are still open (default 5000). */
+	/** After this long, close() drops connections that are still open (default 10000). */
 	shutdownTimeoutMs?: number;
 	/** Extra Host hostnames (port-agnostic) on top of localhost; `*` disables the Host check. */
 	allowedHosts?: string[];
@@ -96,11 +97,11 @@ export function createHttpServer({
 	host,
 	port,
 	logger,
-	shutdownTimeoutMs = 5000,
+	shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
 	allowedHosts = [],
 	allowedOrigins = [],
 	authToken,
-	maxBodyBytes = 1048576,
+	maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
 }: HttpServerOptions): HttpServer {
 	const onerror = (error: Error) => logger.error({ error: getErrorMessage(error) }, "MCP error");
 	// Content-Length is rejected up front (bodyGuard) before anything is read; the SDK cap
