@@ -203,13 +203,17 @@ function handleSSE(
 		logger.error({ sessionId, error: getErrorMessage(error) }, "Failed to connect transport");
 	});
 
-	// Handle client disconnect
-	req.on("close", () => {
+	// Handle client disconnect. Node emits "close" on res when the connection drops,
+	// Bun only on req, so listen to both and clean up once.
+	const onClose = () => {
+		if (session.closed) return;
 		logger.info({ sessionId }, "SSE connection closed");
 		session.closed = true;
 		sessions.delete(sessionId);
 		server.close();
-	});
+	};
+	req.on("close", onClose);
+	res.on("close", onClose);
 }
 
 function handleMessages(
