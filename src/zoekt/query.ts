@@ -6,12 +6,12 @@ const FLAG_GROUP = /^\(\?[a-zA-Z-]+[:)]/;
 const REGEX_SPECIALS = /[\\.+*?()|[\]{}^$]/g;
 
 /** Escapes every regex metacharacter (`\ . + * ? ( ) | [ ] { } ^ $`) so `s` matches literally. */
-export function escapeRegex(s: string): string {
+function escapeRegex(s: string): string {
 	return s.replace(REGEX_SPECIALS, "\\$&");
 }
 
 /** Wraps `s` in double quotes for a Zoekt query, escaping `\` and `"`. */
-export function quoteArg(s: string): string {
+function quoteArg(s: string): string {
 	return `"${s.replace(/[\\"]/g, "\\$&")}"`;
 }
 

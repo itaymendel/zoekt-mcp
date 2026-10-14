@@ -24,22 +24,3 @@ export function hangingFetch() {
 		})) as unknown as typeof globalThis.fetch;
 	return { fetch, signalSeen, aborted };
 }
-
-/**
- * An endless response body of `chunkBytes`-sized chunks. `state.pulled` counts chunks produced and
- * `state.cancelled` flips when the consumer cancels the stream.
- */
-export function streamingBody(chunkBytes = 512) {
-	const state = { pulled: 0, cancelled: false };
-	const chunk = new Uint8Array(chunkBytes).fill(97);
-	const body = new ReadableStream<Uint8Array>({
-		pull(controller) {
-			state.pulled++;
-			controller.enqueue(chunk);
-		},
-		cancel() {
-			state.cancelled = true;
-		},
-	});
-	return { body, state };
-}
