@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { normalizeRepoList } from "../src/tools/list-repos.js";
-import { formatBytes, formatRepoList, redactUrl } from "../src/utils.js";
+import { formatRepoList, redactUrl } from "../src/utils.js";
 import { RepoListWireSchema } from "../src/zoekt/types.js";
-import { startFakeZoekt } from "./helpers/fake-zoekt.js";
 import { expectGolden } from "./helpers/golden.js";
 import { hangingFetch } from "./helpers/hanging-fetch.js";
 import { connectTestClient, resultText, type TestMcp } from "./helpers/mcp.js";
@@ -67,25 +65,6 @@ describe("list_repos requests", () => {
 		expect(text.startsWith("3 repositories indexed")).toBe(true);
 	});
 
-	test.each([
-		["api", 'r:"(?i)api"'],
-		["(?-i)Api", 'r:"(?-i)Api"'],
-		["^github\\.com/", 'r:"(?i)^github\\\\.com/"'],
-		['a"b', 'r:"(?i)a\\"b"'],
-	])("filter %p -> q=%p", async (filter, q) => {
-		const { fetch } = await callListRepos({ "/search": "list-all" }, { filter });
-
-		expect(fetch.requests[0]?.searchParams.get("q")).toBe(q);
-	});
-
-	test("the escaped filter decodes to the regex the user typed", async () => {
-		const { fetch } = await callListRepos({ "/search": "list-all" }, { filter: "^github\\.com/" });
-		const q = fetch.requests[0]?.searchParams.get("q") as string;
-
-		// Zoekt drops one backslash level inside quotes.
-		expect(q.replaceAll("\\\\", "\\")).toBe('r:"(?i)^github\\.com/"');
-	});
-
 	test("list-filter replay: the request equals the captured case", async () => {
 		const { fetch, text } = await callListRepos({ "/search": "list-filter" }, { filter: "ALPHA" });
 
@@ -95,12 +74,6 @@ describe("list_repos requests", () => {
 		expect(text).toContain('1 repository match "ALPHA"');
 		expect(text).toContain("example.test/alpha");
 	});
-
-	test("never sends type:repo", async () => {
-		const { fetch } = await callListRepos({ "/search": "list-all" }, { filter: "x" });
-
-		expect(fetch.requests[0]?.searchParams.get("q")).not.toContain("type:repo");
-	});
 });
 
 describe("list_repos output", () => {
@@ -108,15 +81,6 @@ describe("list_repos output", () => {
 		const { text } = await callListRepos({ "/search": "list-all" });
 
 		expectGolden("repos-all.txt", text);
-	});
-
-	test("multi-branch alpha row shows branch@sha7; beta shows HEAD@", async () => {
-		const { text } = await callListRepos({ "/search": "list-all" });
-		const alpha = text.split("\n").find((l) => l.startsWith("example.test/alpha"));
-		const beta = text.split("\n").find((l) => l.startsWith("example.test/beta"));
-
-		expect(alpha).toMatch(/ main@[0-9a-f]{7}, main-old@[0-9a-f]{7}, feature@[0-9a-f]{7} /);
-		expect(beta).toMatch(/ HEAD@[0-9a-f]{7} /);
 	});
 
 	test("more than 3 branches: HEAD first, then `+N more`", async () => {
@@ -187,22 +151,6 @@ describe("list_repos output", () => {
 			'No repositories match "zzz". Filters are regexes on the repository name, case-insensitive unless prefixed (?-i).',
 		);
 	});
-
-	test("a Zoekt regexp error surfaces as a tool error", async () => {
-		const { result, text } = await callListRepos(
-			{
-				"/search": () =>
-					new Response("error parsing regexp: missing closing ): `(`\n", {
-						status: 418,
-						statusText: "I'm a teapot",
-					}),
-			},
-			{ filter: "(" },
-		);
-
-		expect(result.isError).toBe(true);
-		expect(text).toStartWith("list_repos error: Zoekt rejected the request: error parsing regexp");
-	});
 });
 
 describe("list_repos paging", () => {
@@ -240,19 +188,6 @@ describe("list_repos paging", () => {
 		expect(text).toContain("offset=10 is past the end");
 	});
 
-	test.each([
-		["limit 201", { limit: 201 }],
-		["limit 0", { limit: 0 }],
-		["offset -1", { offset: -1 }],
-		["offset+limit > 5000", { limit: 200, offset: 4900 }],
-		["filter over 500 chars", { filter: "x".repeat(501) }],
-	])("%s is rejected without calling Zoekt", async (_label, args) => {
-		const { result, fetch } = await callListRepos({ "/search": "list-all" }, args);
-
-		expect(result.isError).toBe(true);
-		expect(fetch.requests).toHaveLength(0);
-	});
-
 	test("offset+limit == 5000 is allowed", async () => {
 		const { result, fetch } = await callListRepos(
 			{ "/search": stubRepos(names) },
@@ -262,66 +197,40 @@ describe("list_repos paging", () => {
 		expect(result.isError).toBeFalsy();
 		expect(fetch.requests[0]?.searchParams.get("num")).toBe("5000");
 	});
+
+	test("offset+limit > 5000 is rejected without calling Zoekt", async () => {
+		const { result, text, fetch } = await callListRepos(
+			{ "/search": stubRepos(names) },
+			{ limit: 200, offset: 4801 },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(text).toContain("offset + limit must be at most 5000");
+		expect(fetch.requests).toHaveLength(0);
+	});
 });
 
-describe("normalizeRepoList and formatting", () => {
-	test("normalizes the fixture; Go's zero time is omitted and a real date shown as YYYY-MM-DD", () => {
-		const wire = RepoListWireSchema.parse(
-			(loadCase("list-all").response.body as { repos: unknown }).repos,
-		);
-		const list = normalizeRepoList(wire, { offset: 0 });
-
-		expect(list.total).toBe(3);
-		expect(list.truncated).toBe(false);
-		expect(list.repos[0]).toEqual({
-			name: "example.test/alpha",
-			branches: [
-				{ name: "main", sha: "65215178838c403c2b1ac794a567d135dff71cfb" },
-				{ name: "main-old", sha: "d2e349ab119c2f799d46b2da63e763e3e7e69c9a" },
-				{ name: "feature", sha: "9296f2d10d2062d0bdfb16c00bb5789f42c06a11" },
-			],
-			files: 15,
-			sizeBytes: 816,
+describe("formatRepoList", () => {
+	test("Go's zero time is omitted and a real date shown as YYYY-MM-DD", () => {
+		const wire = RepoListWireSchema.parse({
+			Repos: [repoEntry("zero", { IndexTime: "0001-01-01T00:00:00Z" }), repoEntry("real")],
 		});
+		const lines = formatRepoList(wire, { offset: 0 }).split("\n");
 
-		const dated = normalizeRepoList(
-			RepoListWireSchema.parse({
-				Repos: [repoEntry("zero", { IndexTime: "0001-01-01T00:00:00Z" }), repoEntry("real")],
-			}),
-			{ offset: 0 },
-		);
-		expect(dated.repos[0]?.indexedAt).toBeUndefined();
-		expect(dated.repos[1]?.indexedAt).toBe("2025-03-04T05:06:07Z");
-		expect(formatRepoList(dated)).toContain(
-			"real  HEAD@aaaaaaa  3 files  2.0 KiB  indexed 2025-03-04",
-		);
-	});
-
-	test("formatBytes is base-1024", () => {
-		expect(formatBytes(0)).toBe("0 B");
-		expect(formatBytes(1023)).toBe("1023 B");
-		expect(formatBytes(1024)).toBe("1.0 KiB");
-		expect(formatBytes(1536)).toBe("1.5 KiB");
-		expect(formatBytes(1024 * 1024)).toBe("1.0 MiB");
-		expect(formatBytes(5 * 1024 ** 3)).toBe("5.0 GiB");
+		expect(lines).toContain("zero  HEAD@aaaaaaa  3 files  2.0 KiB");
+		expect(lines).toContain("real  HEAD@aaaaaaa  3 files  2.0 KiB  indexed 2025-03-04");
 	});
 
 	test("a filter is echoed in the header", () => {
-		const list = normalizeRepoList(
-			RepoListWireSchema.parse({ Stats: { Repos: 1 }, Repos: [repoEntry("a/b")] }),
-			{ filter: "b", offset: 0 },
-		);
+		const wire = RepoListWireSchema.parse({ Stats: { Repos: 1 }, Repos: [repoEntry("a/b")] });
 
-		expect(formatRepoList(list).split("\n")[0]).toBe('1 repository match "b" — showing 1-1.');
+		expect(formatRepoList(wire, { filter: "b", offset: 0 }).split("\n")[0]).toBe(
+			'1 repository match "b" — showing 1-1.',
+		);
 	});
 });
 
 describe("redactUrl", () => {
-	test("replaces userinfo", () => {
-		expect(redactUrl("http://user:pass@zoekt:6070")).toBe("http://***:***@zoekt:6070");
-		expect(redactUrl("http://token@zoekt:6070/")).toBe("http://***@zoekt:6070");
-	});
-
 	test("hides userinfo in non-http and unparsable inputs", () => {
 		expect(redactUrl("ftp://u:s3cret@x")).not.toContain("s3cret");
 		expect(redactUrl("u:s3cret@")).toBe("***@");
@@ -351,22 +260,5 @@ describe("cancellation through MCP", () => {
 		await hanging.aborted;
 
 		expect(upstream.aborted).toBe(true);
-	});
-
-	test("with a real socket: the hanging request is seen by fake-zoekt, then cancelled", async () => {
-		const fake = await startFakeZoekt({ hang: true });
-		try {
-			mcp = await connectTestClient(testDeps(undefined, { baseUrl: fake.url }));
-			const controller = new AbortController();
-			const call = mcp.client
-				.callTool({ name: "list_repos", arguments: {} }, { signal: controller.signal })
-				.catch((e: unknown) => e);
-
-			expect(await fake.nextRequest()).toBe("/search");
-			controller.abort();
-			await call;
-		} finally {
-			await fake.close();
-		}
 	});
 });

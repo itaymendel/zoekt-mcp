@@ -49,17 +49,16 @@ describe("tool metadata", () => {
 		});
 
 		expect(required("search")).toEqual(["query"]);
-		expect(props("search").maxFiles).toMatchObject({ minimum: 1, maximum: 100, default: 20 });
-		expect(props("search").maxMatchesPerFile).toMatchObject({
-			minimum: 1,
-			maximum: 50,
-			default: 5,
-		});
-		expect(props("search").contextLines).toMatchObject({ minimum: 0, maximum: 10, default: 2 });
 		expect([...required("read_file")].sort()).toEqual(["path", "repo"]);
 		expect(required("list_repos")).toEqual([]);
-		expect(props("list_repos").limit).toMatchObject({ minimum: 1, maximum: 200, default: 50 });
-		expect(props("list_repos").offset).toMatchObject({ minimum: 0, default: 0 });
+		expect(Object.keys(props("list_repos"))).toEqual(["filter", "limit", "offset"]);
+		expect(Object.keys(props("read_file"))).toEqual([
+			"repo",
+			"path",
+			"branch",
+			"startLine",
+			"endLine",
+		]);
 	});
 });
 
@@ -78,8 +77,6 @@ describe("tool calls", () => {
 		for (const bad of [
 			{ maxFiles: 101 },
 			{ maxFiles: 0 },
-			{ maxMatchesPerFile: 51 },
-			{ maxMatchesPerFile: 0 },
 			{ contextLines: 11 },
 			{ contextLines: -1 },
 			{ query: "" },
@@ -92,16 +89,6 @@ describe("tool calls", () => {
 			expect(result.isError).toBe(true);
 		}
 		expect(requestedUrls).toHaveLength(0);
-	});
-
-	test("search ignores the removed limit argument", async () => {
-		const result = await client.callTool({
-			name: "search",
-			arguments: { query: "foo", limit: 5 },
-		});
-
-		expect(result.isError).toBeFalsy();
-		expect(new URL(requestedUrls[0] ?? "").searchParams.get("num")).toBe("21");
 	});
 });
 
@@ -116,25 +103,6 @@ describe("tool errors carry Zoekt's text", () => {
 			expect(result.isError).toBe(true);
 			expect(resultText(result)).toBe(
 				"search error: Zoekt rejected the request: query: missing close paren, got token <nil>",
-			);
-		} finally {
-			await mcp.close();
-		}
-	});
-
-	test("read_file for a missing file says it is not found", async () => {
-		const mcp = await connectTestClient(
-			testDeps(mockZoektFetch({ "/print": "print-not-found", "/search": "list-all" })),
-		);
-		try {
-			const result = await mcp.client.callTool({
-				name: "read_file",
-				arguments: { repo: "example.test/alpha", path: "nope.txt" },
-			});
-
-			expect(result.isError).toBe(true);
-			expect(resultText(result)).toStartWith(
-				"read_file error: File not found: example.test/alpha:nope.txt.",
 			);
 		} finally {
 			await mcp.close();

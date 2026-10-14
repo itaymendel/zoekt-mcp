@@ -1,4 +1,4 @@
-import type { RepoInfo, RepoList } from "./zoekt/types.js";
+import type { RepoListWire } from "./zoekt/types.js";
 
 export function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -7,8 +7,12 @@ export function getErrorMessage(error: unknown): string {
 const MAX_BRANCHES_SHOWN = 3;
 
 /** One line per repository, plus a header and (when paged) a footer. */
-export function formatRepoList(list: RepoList): string {
-	const { filter, total, offset, repos } = list;
+export function formatRepoList(
+	wire: RepoListWire,
+	{ filter, offset }: { filter?: string; offset: number },
+): string {
+	const repos = wire.Repos.slice(offset);
+	const total = wire.Stats?.Repos || wire.Repos.length;
 	if (repos.length === 0 && total === 0) {
 		return filter
 			? `No repositories match "${filter}". Filters are regexes on the repository name, case-insensitive unless prefixed (?-i).`
@@ -21,33 +25,33 @@ export function formatRepoList(list: RepoList): string {
 
 	const first = offset + 1;
 	const last = offset + repos.length;
-	const header = `${subject} — showing ${first}-${last}.`;
-	const lines = repos.map(formatRepoLine);
-	const parts = [header, "", ...lines];
-	if (list.truncated) {
+	const parts = [`${subject} — showing ${first}-${last}.`, "", ...repos.map(formatRepoLine)];
+	if (last < total) {
 		parts.push(
 			"",
-			`Showing ${first}-${last} of ${total}. Use offset=${list.nextOffset ?? last} for the next page, or narrow the filter.`,
+			`Showing ${first}-${last} of ${total}. Use offset=${last} for the next page, or narrow the filter.`,
 		);
 	}
 	return parts.join("\n");
 }
 
-function formatRepoLine(repo: RepoInfo): string {
-	const head: RepoInfo["branches"] = [];
-	const rest: RepoInfo["branches"] = [];
-	for (const b of repo.branches) (b.name === "HEAD" ? head : rest).push(b);
+function formatRepoLine(repo: RepoListWire["Repos"][number]): string {
+	const head: typeof repo.Branches = [];
+	const rest: typeof repo.Branches = [];
+	for (const b of repo.Branches) (b.Name === "HEAD" ? head : rest).push(b);
 	const ordered = [...head, ...rest];
-	const shown = ordered.slice(0, MAX_BRANCHES_SHOWN).map((b) => `${b.name}@${b.sha.slice(0, 7)}`);
+	const shown = ordered
+		.slice(0, MAX_BRANCHES_SHOWN)
+		.map((b) => `${b.Name}@${b.Version.slice(0, 7)}`);
 	const extra = ordered.length - shown.length;
 	if (extra > 0) shown.push(`+${extra} more`);
 
 	return [
-		repo.name,
+		repo.Name,
 		shown.join(", "),
-		`${repo.files} ${plural(repo.files, "file", "files")}`,
-		formatBytes(repo.sizeBytes),
-		repo.indexedAt ? `indexed ${repo.indexedAt.slice(0, 10)}` : "",
+		`${repo.Files} ${plural(repo.Files, "file", "files")}`,
+		formatBytes(repo.Size),
+		repo.IndexTime ? `indexed ${repo.IndexTime.slice(0, 10)}` : "",
 	]
 		.filter(Boolean)
 		.join("  ");

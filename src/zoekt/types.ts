@@ -100,24 +100,3 @@ export interface SearchOptions {
 	num?: number;
 	contextLines?: number;
 }
-
-/** Canonical repository listing returned by `ZoektClient.listRepos` consumers (no nulls). */
-export interface RepoList {
-	filter?: string;
-	/** Total matching repositories (before paging). */
-	total: number;
-	offset: number;
-	/** More repositories exist beyond this page. */
-	truncated: boolean;
-	nextOffset?: number;
-	repos: RepoInfo[];
-}
-
-export interface RepoInfo {
-	name: string;
-	branches: Array<{ name: string; sha: string }>;
-	files: number;
-	sizeBytes: number;
-	/** ISO timestamp; omitted when Zoekt reports a zero time. */
-	indexedAt?: string;
-}
