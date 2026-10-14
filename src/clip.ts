@@ -1,19 +1,16 @@
 /** A single row is clipped to this many characters (ellipses included). */
-export const MAX_LINE_CHARS = 240;
+const MAX_LINE_CHARS = 240;
 
 const isHigh = (c: number) => c >= 0xd800 && c <= 0xdbff;
 const isLow = (c: number) => c >= 0xdc00 && c <= 0xdfff;
 
 /**
- * `text` cut to `max` characters (ellipses included) around `focus`, a `[start, end)` span to keep
+ * `text` cut to `MAX_LINE_CHARS` characters (ellipses included) around `focus`, a `[start, end)` span to keep
  * in view (default: the start of the text), never splitting a surrogate pair.
  */
-export function clipLine(
-	text: string,
-	{ focus, max = MAX_LINE_CHARS }: { focus?: [number, number]; max?: number } = {},
-): string {
-	if (text.length <= max) return text;
-	const body = max - 2; // room for a leading and a trailing ellipsis
+export function clipLine(text: string, { focus }: { focus?: [number, number] } = {}): string {
+	if (text.length <= MAX_LINE_CHARS) return text;
+	const body = MAX_LINE_CHARS - 2; // room for a leading and a trailing ellipsis
 	const [from, to] = focus ?? [0, 0];
 	const spanLen = Math.min(Math.max(to - from, 0), body);
 	let start = Math.max(0, from - Math.floor((body - spanLen) / 2));

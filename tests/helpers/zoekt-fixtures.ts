@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { type SearchResponse, SearchResultSchema } from "../../src/zoekt/types.js";
-import { CASES_URL, FIXTURES_URL, MANIFEST_URL } from "./fixture-repo.js";
+import { CASES_URL, MANIFEST_URL } from "./fixture-repo.js";
 
 /** One captured Zoekt exchange, as written by scripts/capture-zoekt-fixtures.ts. */
 export interface ZoektCase {
@@ -32,11 +32,6 @@ export function loadCase(name: string): ZoektCase {
 export function loadSearchResponse(name: string): SearchResponse {
 	const body = loadCase(name).response.body as { result: unknown };
 	return { result: SearchResultSchema.parse(body.result) };
-}
-
-/** Contents of a file in a fixture repository's source tree (`repos/<dir>/<path>`). */
-export function readRepoFile(dir: string, path: string): string {
-	return readFileSync(new URL(`repos/${dir}/${path}`, FIXTURES_URL), "utf8");
 }
 
 function caseToResponse(name: string): Response {
