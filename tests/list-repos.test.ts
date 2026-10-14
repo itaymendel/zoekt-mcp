@@ -197,6 +197,17 @@ describe("list_repos paging", () => {
 		expect(result.isError).toBeFalsy();
 		expect(fetch.requests[0]?.searchParams.get("num")).toBe("5000");
 	});
+
+	test("offset+limit > 5000 is rejected without calling Zoekt", async () => {
+		const { result, text, fetch } = await callListRepos(
+			{ "/search": stubRepos(names) },
+			{ limit: 200, offset: 4801 },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(text).toContain("offset + limit must be at most 5000");
+		expect(fetch.requests).toHaveLength(0);
+	});
 });
 
 describe("formatRepoList", () => {
