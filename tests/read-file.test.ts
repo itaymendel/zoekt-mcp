@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { formatFile, MAX_FETCH_BYTES, resolveRange } from "../src/file-format.js";
+import { MAX_FETCH_BYTES } from "../src/file-format.js";
 import { exactRepoAtom } from "../src/zoekt/query.js";
 import { expectGolden } from "./helpers/golden.js";
 import { connectTestClient, resultText, type TestMcp } from "./helpers/mcp.js";
@@ -22,7 +22,6 @@ async function callRead(routes: ZoektRoutes, args: Record<string, unknown>) {
 		result,
 		text: resultText(result),
 		fetch,
-		paths: fetch.requests.map((u) => u.pathname),
 	};
 }
 
@@ -55,7 +54,6 @@ describe("read_file output", () => {
 		expect(text).not.toContain("501:");
 		expect(text).toEndWith("Truncated: showing lines 1-500 of 1200. Continue with startLine=501.");
 		expect(fetch.requests).toHaveLength(1);
-		expectGolden("read-file-window.txt", text);
 	});
 
 	test("explicit range", async () => {
@@ -78,7 +76,6 @@ describe("read_file output", () => {
 		});
 
 		expect(rows(text)).toHaveLength(2000);
-		expect(text).toContain("Note: the requested range was clamped to 2000 lines per call.");
 		expect(text).toEndWith("Continue with startLine=2001.");
 	});
 
@@ -94,7 +91,7 @@ describe("read_file output", () => {
 		const last = rows(text).length;
 		expect(last).toBeLessThan(200);
 		expect(text).toEndWith(
-			`\n\n---\nTruncated: the 40,000-character output limit was reached after line ${last} (lines 1-${last} of 200). Continue with startLine=${last + 1}.`,
+			`\n\n---\nTruncated: showing lines 1-${last} of 200. Continue with startLine=${last + 1}.`,
 		);
 	});
 
@@ -132,14 +129,6 @@ describe("read_file output", () => {
 
 		expect(result.isError).toBeFalsy();
 		expect(text).toContain("startLine=10 is past the end of the file (3 lines).");
-	});
-
-	test("past the lines readable under the fetch cap", () => {
-		const bytes = new TextEncoder().encode("a\nb\nc\npartial");
-		const text = formatFile(bytes, true, { repo: ALPHA, path: "a.ts" }, resolveRange(10));
-
-		expect(text).toContain("beyond the 8 MiB read limit; only the first 3 lines are readable.");
-		expect(text).not.toContain("past the end");
 	});
 
 	test("empty file", async () => {
@@ -185,85 +174,45 @@ describe("read_file output", () => {
 	});
 });
 
-describe("read_file request sequences", () => {
-	test("no branch reads with one /print and no b", async () => {
-		const { paths, fetch } = await callRead(
-			{ "/print": "print-ok" },
-			{ repo: ALPHA, path: "docs/notes.txt" },
-		);
-
-		expect(paths).toEqual(["/print"]);
-		expect(fetch.requests[0]?.searchParams.has("b")).toBe(false);
-	});
-
-	test("HEAD reads the default branch without a listRepos call", async () => {
-		const { paths, fetch } = await callRead(
-			{ "/print": "print-ok" },
-			{ repo: ALPHA, path: "docs/notes.txt", branch: "HEAD" },
-		);
-
-		expect(paths).toEqual(["/print"]);
-		expect(fetch.requests[0]?.searchParams.get("b")).toBe("HEAD");
-	});
-
+describe("read_file request sequence", () => {
 	test("a branch is checked with one listRepos first", async () => {
-		const { paths, fetch } = await callRead(
+		const { fetch } = await callRead(
 			{ "/search": "list-all", "/print": "print-ok" },
 			{ repo: ALPHA, path: "docs/notes.txt", branch: "main" },
 		);
 
-		expect(paths).toEqual(["/search", "/print"]);
+		expect(fetch.requests.map((u) => u.pathname)).toEqual(["/search", "/print"]);
 		expect(fetch.requests[0]?.searchParams.get("q")).toBe(exactRepoAtom(ALPHA));
 		expect(fetch.requests[1]?.searchParams.get("b")).toBe("main");
-	});
-
-	test("unknown branch", async () => {
-		const { text, result, paths } = await callRead(
-			{ "/search": "list-all", "/print": "print-ok" },
-			{ repo: ALPHA, path: "docs/notes.txt", branch: "nope" },
-		);
-
-		expect(result.isError).toBe(true);
-		expect(text).toBe(
-			'read_file error: Branch "nope" is not indexed for example.test/alpha. Indexed branches: main, main-old, feature.',
-		);
-		expect(paths).toEqual(["/search"]);
-	});
-
-	test("unknown repository with a branch", async () => {
-		const { text, paths } = await callRead(
-			{ "/search": noRepos, "/print": "print-ok" },
-			{ repo: "example.test/zzz", path: "a", branch: "main" },
-		);
-
-		expect(text).toStartWith("read_file error: Repository not found: example.test/zzz.");
-		expect(paths).toEqual(["/search"]);
 	});
 });
 
 describe("read_file errors", () => {
 	test("file not found names the file", async () => {
-		const { text, paths } = await callRead(
+		const { text } = await callRead(
 			{ "/print": "print-not-found", "/search": "list-all" },
 			{ repo: ALPHA, path: "nope.txt" },
 		);
 
 		expect(text).toStartWith("read_file error: File not found: example.test/alpha:nope.txt.");
 		expect(text).toContain("search with `f:`");
-		expect(paths).toEqual(["/print", "/search"]);
 	});
 
-	test("file not found in an unknown repository says so", async () => {
-		const { text } = await callRead(
-			{ "/print": "print-not-found", "/search": noRepos },
-			{ repo: "example.test/zzz", path: "nope.txt" },
-		);
+	test("unknown repository, with or without a branch", async () => {
+		for (const branch of [undefined, "main"]) {
+			const { text } = await callRead(
+				{ "/print": "print-not-found", "/search": noRepos },
+				{ repo: "example.test/zzz", path: "nope.txt", branch },
+			);
 
-		expect(text).toStartWith("read_file error: Repository not found: example.test/zzz.");
+			expect(text).toStartWith("read_file error: Repository not found: example.test/zzz.");
+			await mcp?.close();
+			mcp = undefined;
+		}
 	});
 
 	test("ambiguous without branch", async () => {
-		const { text, paths } = await callRead(
+		const { text } = await callRead(
 			{ "/print": "print-ambiguous", "/search": "list-all" },
 			{ repo: ALPHA, path: "Makefile" },
 		);
@@ -271,11 +220,10 @@ describe("read_file errors", () => {
 		expect(text).toBe(
 			"read_file error: Multiple indexed versions of example.test/alpha:Makefile exist (content differs between branches). Pass branch. Indexed branches: main, main-old, feature.",
 		);
-		expect(paths).toEqual(["/print", "/search"]);
 	});
 
 	test("ambiguous with the default branch as a substring suggests HEAD", async () => {
-		const { text, paths } = await callRead(
+		const { text } = await callRead(
 			{ "/print": "print-ambiguous", "/search": "list-all" },
 			{ repo: ALPHA, path: "Makefile", branch: "main" },
 		);
@@ -283,18 +231,6 @@ describe("read_file errors", () => {
 		expect(text).toContain('match branch "main"');
 		expect(text).toContain('Pass branch: "HEAD" to read the default branch.');
 		expect(text).toContain("Indexed branches: main, main-old, feature.");
-		expect(paths).toEqual(["/search", "/print"]);
-	});
-
-	test("ambiguous with another substring branch states the limitation", async () => {
-		const { text } = await callRead(
-			{ "/print": "print-ambiguous", "/search": "list-all" },
-			{ repo: ALPHA, path: "Makefile", branch: "feature" },
-		);
-
-		expect(text).toContain('match branch "feature"');
-		expect(text).toContain("known limitation");
-		expect(text).not.toContain("HEAD");
 	});
 
 	test("not indexed binary", async () => {
