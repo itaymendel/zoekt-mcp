@@ -92,64 +92,13 @@ export type FileMatch = z.infer<typeof FileMatchSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 export type RepoListWire = z.infer<typeof RepoListWireSchema>;
 
-/**
- * `POST /api/search` (`zoekt-webserver -rpc`) answer, reduced to what symbol enrichment reads.
- * `SymbolInfo` runs parallel to `Ranges` and may hold nulls (ranges that are not a symbol).
- */
-export const ApiSearchResponseSchema = z.object({
-	Result: z.object({
-		Files: list(
-			z.object({
-				FileName: z.string(),
-				Repository: z.string(),
-				ChunkMatches: list(
-					z.object({
-						ContentStart: z.object({ LineNumber: num }).nullish(),
-						Ranges: list(z.object({ Start: z.object({ LineNumber: num }) })),
-						SymbolInfo: z
-							.array(z.object({ Sym: str, Kind: str, Parent: str, ParentKind: str }).nullable())
-							.nullish()
-							.transform((v) => v ?? []),
-					}),
-				),
-			}),
-		),
-	}),
-});
-
-export type ApiSearchResponse = z.infer<typeof ApiSearchResponseSchema>;
-
-/** A ctags symbol defined on a matching line. */
-export interface SearchSymbol {
-	name: string;
-	kind: string;
-	/** Enclosing symbol (e.g. `demo.Server`); omitted at top level. */
-	parent?: string;
-	parentKind?: string;
-}
-
-/** Symbols per match line, keyed by `symbolKey(repo, file, line)`. */
-export type SymbolIndex = Map<string, SearchSymbol[]>;
-
-export const symbolKey = (repo: string, file: string, line: number) => `${repo}\0${file}\0${line}`;
-
 /** A `/search` answer known to be the `{result}` branch. */
-export type SearchResponse = {
-	result: SearchResult;
-	/** Present only when symbol enrichment was requested and `/api/search` answered. */
-	symbols?: SymbolIndex;
-};
+export type SearchResponse = { result: SearchResult };
 
 export interface SearchOptions {
 	query: string;
 	num?: number;
 	contextLines?: number;
-	/** Also ask `/api/search` for ctags symbols of the matching lines (best effort). */
-	symbols?: boolean;
-}
-
-export interface ListReposOptions {
-	num?: number;
 }
 
 /** Canonical repository listing returned by `ZoektClient.listRepos` consumers (no nulls). */

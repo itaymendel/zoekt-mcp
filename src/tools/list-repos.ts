@@ -79,11 +79,9 @@ export async function executeListRepos(
 			`offset + limit must be at most ${MAX_WINDOW} (got ${offset + limit}); narrow the filter instead of paging that deep.`,
 		);
 	}
-	const wire = await client.listRepos(
-		repoListQuery(filter),
-		{ num: offset + limit },
-		{ signal: ctx.signal },
-	);
+	const wire = await client.listRepos(repoListQuery(filter), offset + limit, {
+		signal: ctx.signal,
+	});
 	const data = normalizeRepoList(wire, { filter, offset });
 	return formatRepoList(data);
 }

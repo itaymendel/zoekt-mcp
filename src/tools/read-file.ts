@@ -52,11 +52,6 @@ function cleanPath(path: string): string {
 	return path.replace(/^(?:\.?\/)+/, "");
 }
 
-const NOT_INDEXED_WHY: Record<string, string> = {
-	binary: "binary content",
-	"too-large": "larger than the indexer's size limit",
-};
-
 interface PrintFailure {
 	repo: string;
 	path: string;
@@ -79,7 +74,7 @@ export async function executeReadFile(
 	// One listRepos at most, shared by the branch check and any error explanation.
 	let lookup: Promise<string[] | undefined> | undefined;
 	const indexedBranches = () =>
-		(lookup ??= client.listRepos(exactRepoAtom(repo), {}, req).then((wire) => {
+		(lookup ??= client.listRepos(exactRepoAtom(repo), undefined, req).then((wire) => {
 			const entry = wire.Repos.find((r) => r.Name === repo);
 			return entry?.Branches.map((b) => b.Name);
 		}));
@@ -99,7 +94,7 @@ export async function executeReadFile(
 	// Zoekt /print has no range support, so every page re-fetches the file (up to MAX_FETCH_BYTES).
 	let printed: Awaited<ReturnType<ZoektClient["print"]>>;
 	try {
-		printed = await client.print(repo, path, branch, { maxBytes: MAX_FETCH_BYTES }, req);
+		printed = await client.print(repo, path, branch, MAX_FETCH_BYTES, req);
 	} catch (error) {
 		throw await explainPrintError(error, { repo, path, branch, indexedBranches });
 	}
@@ -133,10 +128,7 @@ async function explainPrintError(error: unknown, ctx: PrintFailure): Promise<unk
 		return new Error(`${where} match branch "${branch}". ${hint} ${listing}`);
 	}
 	if (error instanceof ZoektFileNotIndexedError) {
-		const why = NOT_INDEXED_WHY[error.reason] ?? error.detail;
-		return new Error(
-			`File is not indexed by Zoekt (${why}): ${repo}:${path}. read_file returns indexed text files only.`,
-		);
+		return new Error(`${error.message}. read_file returns indexed text files only.`);
 	}
 	return error;
 }

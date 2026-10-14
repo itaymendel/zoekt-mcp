@@ -1,13 +1,13 @@
 # example.test/alpha
 ## src/registry.go
-5:func (r *Registry) LookupEntry(name string) error {  [func LookupEntry in struct registry.Registry]
+5:func (r *Registry) LookupEntry(name string) error {
 --
-9:func LookupAll(names []string) int {  [func LookupAll in package registry]
+9:func LookupAll(names []string) int {
 
 ## src/registry.ts
-2:	lookupEntry(name: string): boolean {  [method lookupEntry in class Registry]
+2:	lookupEntry(name: string): boolean {
 --
-7:export function lookupAll(names: string[]): number {  [function lookupAll]
+7:export function lookupAll(names: string[]): number {
 
 ---
 2 files, 4 matching lines.

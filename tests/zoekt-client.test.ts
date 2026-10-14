@@ -14,27 +14,16 @@ function createClient(baseUrl = "http://localhost:6070") {
 }
 
 describe("ZoektClient", () => {
-	test("should search with query", async () => {
+	test("should search with query and options", async () => {
 		const { client, fetch } = createClient();
-		const result = await client.search({ query: "handleRequest" });
+		const result = await client.search({ query: "handleRequest", num: 10, contextLines: 5 });
 
-		expect(result.result.FileMatches?.length).toBe(2);
 		expect(result.result.FileMatches?.map((m) => m.Repo).sort()).toEqual([ALPHA_REPO, BETA_REPO]);
-		expect(fetch.requests[0].searchParams.get("q")).toBe("handleRequest");
-		expect(fetch.requests[0].searchParams.get("format")).toBe("json");
-	});
-
-	test("should search with options", async () => {
-		const { client, fetch } = createClient();
-		const result = await client.search({
-			query: "handleRequest",
-			num: 10,
-			contextLines: 5,
-		});
-
-		expect(result.result.FileMatches).toBeDefined();
-		expect(fetch.requests[0].searchParams.get("num")).toBe("10");
-		expect(fetch.requests[0].searchParams.get("ctx")).toBe("5");
+		const params = fetch.requests[0].searchParams;
+		expect(params.get("q")).toBe("handleRequest");
+		expect(params.get("format")).toBe("json");
+		expect(params.get("num")).toBe("10");
+		expect(params.get("ctx")).toBe("5");
 	});
 
 	test("should print file content", async () => {
@@ -52,9 +41,7 @@ describe("ZoektClient", () => {
 	test("should list repositories via a repo-only query", async () => {
 		const fetch = mockZoektFetch({ "/search": "list-all" });
 		const { client } = testDeps(fetch);
-		const repos = await client.listRepos(loadCase("list-all").request.query.q as string, {
-			num: 50,
-		});
+		const repos = await client.listRepos(loadCase("list-all").request.query.q as string, 50);
 
 		expect(repos.Stats?.Repos).toBe(3);
 		expect(repos.Repos.map((r) => r.Name)).toEqual([ALPHA_REPO, BETA_REPO, DELTA_REPO]);
@@ -78,9 +65,7 @@ describe("print streaming cap", () => {
 		const { body, state } = streamingBody();
 		const { client } = testDeps((async () => new Response(body)) as unknown as typeof fetch);
 
-		const { bytes, truncated } = await client.print(ALPHA_REPO, "inf.txt", undefined, {
-			maxBytes: 1024,
-		});
+		const { bytes, truncated } = await client.print(ALPHA_REPO, "inf.txt", undefined, 1024);
 
 		expect(bytes.length).toBe(1024);
 		expect(truncated).toBe(true);

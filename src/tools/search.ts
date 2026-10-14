@@ -2,7 +2,6 @@ import { z } from "zod";
 import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import { DEFAULT_OUTPUT_CHARS, formatSearch } from "../search-format.js";
 import type { ZoektClient } from "../zoekt/client.js";
-import { hasSymAtom } from "../zoekt/query.js";
 
 export const searchSchema = z.object({
 	query: z.string().min(1).describe("Zoekt query; syntax is in the tool description"),
@@ -40,7 +39,7 @@ export const searchDescription = `Search code with Zoekt. Matches are grouped by
 - Case is smart by default: all-lowercase terms ignore case, any capital makes the term case-sensitive. \`case:yes\` and \`case:no\` force it.
 - A leading \`-\` negates a term or filter.
 - Filters: \`r:\` or \`repo:\` (regex on the repo name, case-sensitive; use \`r:(?i)acme\`); \`f:\` or \`file:\` (regex on the path); \`lang:go\` (no short form; an unknown language matches nothing); \`b:\` or \`branch:\` (substring of the branch name; \`branch:HEAD\` is the default branch); \`c:\` (file content only); \`archived:\`, \`fork:\`, \`public:\` with yes or no; \`meta.<field>:\` (regex on repo metadata).
-- \`sym:Name\` finds symbol definitions and tags each matching row with \`[kind name in parentKind parent]\`. It needs an index built with ctags; zero results may mean there are no symbols, so retry as plain text.
+- \`sym:Name\` finds symbol definitions. It needs an index built with ctags; zero results may mean there are no symbols, so retry as plain text.
 - \`type:file\` returns matching file paths only, no lines. Use it to find files by name.
 - Quotes keep a phrase together. Inside quotes write \`\\\\.\` for a literal dot and \`\\"\` for a quote.
 
@@ -53,7 +52,7 @@ export const searchDescription = `Search code with Zoekt. Matches are grouped by
 - \`"v1\\\\.2" lang:go\`
 
 ## Output
-Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. For \`sym:\` queries a matching row ends with \`  [kind name]\` or \`  [kind name in parentKind parent]\`. Results are bounded by maxFiles, maxMatchesPerFile and an output size budget; the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
+Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Results are bounded by maxFiles, maxMatchesPerFile and an output size budget; the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
 
 export async function executeSearch(
 	client: ZoektClient,
@@ -63,7 +62,7 @@ export async function executeSearch(
 	const { query, maxFiles, maxMatchesPerFile, contextLines } = input;
 	// Ask for one file more than shown, so Zoekt's own cap cannot hide that there were more.
 	const response = await client.search(
-		{ query, num: maxFiles + 1, contextLines, symbols: hasSymAtom(query) },
+		{ query, num: maxFiles + 1, contextLines },
 		{ signal: ctx.signal },
 	);
 

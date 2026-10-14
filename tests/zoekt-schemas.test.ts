@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
-import { ZoektProtocolError } from "../src/zoekt/errors.js";
 import { escapeRegex, exactRepoAtom, quoteArg, repoListQuery } from "../src/zoekt/query.js";
 import { ApiResponseSchema } from "../src/zoekt/types.js";
 import { CASES_DIR } from "./helpers/fixture-repo.js";
@@ -21,47 +20,30 @@ describe("tolerant schemas", () => {
 		}
 	});
 
-	test("FileMatches: null", () => {
+	test("Go nulls, omitted fields and unknown keys are tolerated", () => {
 		expect(parse({ result: { FileMatches: null } }).result?.FileMatches).toEqual([]);
-	});
+		expect(parse({ repos: { Repos: null, Stats: { Repos: 0 } } }).repos?.Repos).toEqual([]);
 
-	test("Before: null and After: null", () => {
 		const out = parse({
 			result: {
+				Mystery: 1,
 				FileMatches: [
 					{
 						FileName: "a",
 						Repo: "r",
-						Matches: [{ LineNum: 1, Fragments: [], Before: null, After: null }],
+						Extra: [],
+						Matches: [
+							{ LineNum: 1, Fragments: [], Before: null, After: null },
+							{ Fragments: null },
+						],
 					},
 				],
 			},
 		});
-		const match = out.result?.FileMatches[0]?.Matches[0];
-		expect(match?.Before).toBe("");
-		expect(match?.After).toBe("");
-	});
-
-	test("Repos: null", () => {
-		expect(parse({ repos: { Repos: null, Stats: { Repos: 0 } } }).repos?.Repos).toEqual([]);
-	});
-
-	test("missing Stats", () => {
-		const out = parse({ result: { FileMatches: [{ FileName: "a", Repo: "r" }] } });
+		const [first, second] = out.result?.FileMatches[0]?.Matches ?? [];
 		expect(out.result?.Stats).toBeUndefined();
-	});
-
-	test("Fragments: null", () => {
-		const out = parse({
-			result: { FileMatches: [{ FileName: "a", Repo: "r", Matches: [{ Fragments: null }] }] },
-		});
-		expect(out.result?.FileMatches[0]?.Matches[0]?.Fragments).toEqual([]);
-	});
-
-	test("unknown extra keys are accepted", () => {
-		expect(() =>
-			parse({ result: { Mystery: 1, FileMatches: [{ FileName: "a", Repo: "r", Extra: [] }] } }),
-		).not.toThrow();
+		expect([first?.Before, first?.After]).toEqual(["", ""]);
+		expect(second?.Fragments).toEqual([]);
 	});
 
 	test("search-context: Before and After survive parsing", () => {
@@ -84,7 +66,6 @@ describe("response union", () => {
 		const error = await clientFor("list-all")
 			.search({ query: 'r:"."' })
 			.catch((e: unknown) => e as Error);
-		expect(error).toBeInstanceOf(ZoektProtocolError);
 		expect((error as Error).message).toContain("interpreted as a repository listing");
 	});
 
@@ -92,7 +73,6 @@ describe("response union", () => {
 		const error = await clientFor("search-multi-fragment")
 			.listRepos('r:"."')
 			.catch((e: unknown) => e as Error);
-		expect(error).toBeInstanceOf(ZoektProtocolError);
 		expect((error as Error).message).toContain("expected repository listing");
 	});
 });

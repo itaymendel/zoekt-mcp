@@ -505,6 +505,17 @@ describe("executeSearch", () => {
 		expect(text).toContain("2:needle one");
 	});
 
+	test("sym: query is one plain /search request", async () => {
+		const { fetch, result } = run(
+			{ "/search": "search-sym" },
+			{ query: "sym:lookup", contextLines: 0 },
+		);
+		const text = await result;
+
+		expect(fetch.requests.map((u) => u.pathname)).toEqual(["/search"]);
+		expectGolden("search-sym.txt", text);
+	});
+
 	test("many files: shows 3 of 8 files through the whole pipeline", async () => {
 		const text = await run({ "/search": "search-many-files" }, { maxFiles: 3 }).result;
 

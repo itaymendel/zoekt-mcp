@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **`search` shows what a `sym:` match is.** For queries with a `sym:` atom, matching rows end with `  [func HandleRequest in struct demo.Server]` (kind, name, and the enclosing parent when there is one). Symbols come from a second request, `POST /api/search`, sent in parallel with `/search`; it needs `zoekt-webserver -rpc` (the official image has it). It is best effort: without `-rpc`, or on any error, results are unchanged and have no suffix. Queries without `sym:` (and negated `-sym:`) are unaffected.
-
 ### Removed
 
 - Unused internals: unread Zoekt wire fields, the internal `data` model on tool results and unused type exports. No behavior change.

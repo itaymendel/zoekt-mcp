@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ZoektClient } from "../src/zoekt/client.js";
 import { startFakeZoekt } from "./helpers/fake-zoekt.js";
 import { ALPHA_REPO } from "./helpers/fixture-repo.js";
 import { hangingFetch } from "./helpers/hanging-fetch.js";
@@ -65,25 +66,35 @@ describe("credentials in the base URL", () => {
 		expect(seen[0]?.headers.get("authorization")).toBe(`Basic ${btoa("u:s3cret")}`);
 	});
 
-	test("a refused connection never mentions the password", async () => {
-		const fake = await startFakeZoekt();
-		const { host } = new URL(fake.url);
-		await fake.close();
-		const { client } = testDeps(undefined, { baseUrl: `http://u:s3cret@${host}` });
+	const failures: Array<[string, () => Promise<{ client: ZoektClient; expected: string }>]> = [
+		[
+			"a refused connection",
+			async () => {
+				const fake = await startFakeZoekt();
+				const { host } = new URL(fake.url);
+				await fake.close();
+				const { client } = testDeps(undefined, { baseUrl: `http://u:s3cret@${host}` });
+				return { client, expected: `Cannot reach Zoekt at ${fake.url} (ECONNREFUSED)` };
+			},
+		],
+		[
+			"a timeout",
+			async () => {
+				const { client } = testDeps(hangingFetch().fetch, {
+					baseUrl: "http://u:s3cret@zoekt.test",
+					timeoutMs: 20,
+				});
+				return { client, expected: "Zoekt request timed out after 20ms" };
+			},
+		],
+	];
+
+	test.each(failures)("%s never mentions the password", async (_name, setup) => {
+		const { client, expected } = await setup();
 		const error = await rejection(client.search({ query: "x" }));
 
-		expect(error.message).toBe(`Cannot reach Zoekt at ${fake.url} (ECONNREFUSED)`);
+		expect(error.message).toBe(expected);
 		expect(error.message).not.toContain("s3cret");
-	});
-
-	test("a timeout never mentions the password", async () => {
-		const { client } = testDeps(hangingFetch().fetch, {
-			baseUrl: "http://u:s3cret@zoekt.test",
-			timeoutMs: 20,
-		});
-		const error = await rejection(client.search({ query: "x" }));
-
-		expect(error.message).toBe("Zoekt request timed out after 20ms");
 	});
 
 	test("a tool error through MCP never contains the password", async () => {

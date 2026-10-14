@@ -1,12 +1,6 @@
 import { clipLine, cutEnd, splitLines, stripEol } from "./clip.js";
 import { pathHeading, plural, repoHeading } from "./utils.js";
-import {
-	type FileMatch,
-	type Match,
-	type SearchResponse,
-	type SearchSymbol,
-	symbolKey,
-} from "./zoekt/types.js";
+import type { FileMatch, Match, SearchResponse } from "./zoekt/types.js";
 
 /** Output budget in characters for one `search` result (footer included, give or take the reserve). */
 export const DEFAULT_OUTPUT_CHARS = 20_000;
@@ -37,8 +31,6 @@ interface SearchLine {
 	/** Line text without the trailing newline; indentation preserved. */
 	text: string;
 	match: boolean;
-	/** ctags symbols defined on this line (match lines of `sym:` searches only). */
-	symbols?: SearchSymbol[];
 	/** `[start, end)` of the first matched fragment within `text` (match lines only). */
 	focus?: [number, number];
 }
@@ -90,7 +82,6 @@ function addContext(byLine: Map<number, SearchLine>, m: Match, contextLines: num
 function normalizeFile(
 	file: FileMatch,
 	{ contextLines, maxMatchesPerFile }: SearchFormatOptions,
-	symbols?: SearchResponse["symbols"],
 ): SearchFile {
 	const filenameMatch = file.Matches.some((m) => m.LineNum === 0);
 	const all = file.Matches.filter((m) => m.LineNum > 0);
@@ -99,10 +90,7 @@ function normalizeFile(
 
 	const byLine = new Map<number, SearchLine>();
 	for (const m of content) {
-		const line = matchLine(m);
-		const found = symbols?.get(symbolKey(file.Repo, file.FileName, m.LineNum));
-		if (found?.length) line.symbols = found;
-		byLine.set(m.LineNum, line);
+		byLine.set(m.LineNum, matchLine(m));
 	}
 	if (contextLines > 0) for (const m of content) addContext(byLine, m, contextLines);
 
@@ -155,25 +143,9 @@ function fileHeader(file: SearchFile, withBranches: boolean) {
 	return header;
 }
 
-/** Longest `[...]` symbol suffix on one row, brackets included. */
-const MAX_SYMBOL_SUFFIX = 120;
-
-function symbolLabel({ name, kind, parent, parentKind }: SearchSymbol) {
-	const own = kind ? `${kind} ${name}` : name;
-	if (!parent) return own;
-	return `${own} in ${parentKind ? `${parentKind} ${parent}` : parent}`;
-}
-
-/** `  [func Name in struct Parent]` for a match row, symbols joined by `; `; capped in length. */
-function symbolSuffix(symbols: SearchSymbol[]) {
-	const inner = clipLine(symbols.map(symbolLabel).join("; "), { max: MAX_SYMBOL_SUFFIX - 2 });
-	return `  [${inner}]`;
-}
-
 /** The rows of one line: a `--` gap marker when it does not follow `prev`, then the line itself. */
 function lineRows(l: SearchLine, prev: number): string[] {
-	const suffix = l.match && l.symbols?.length ? symbolSuffix(l.symbols) : "";
-	const row = `${l.n}${l.match ? ":" : "-"}${clipLine(l.text, { focus: l.focus })}${suffix}`;
+	const row = `${l.n}${l.match ? ":" : "-"}${clipLine(l.text, { focus: l.focus })}`;
 	return prev > 0 && l.n !== prev + 1 ? ["--", row] : [row];
 }
 
@@ -203,9 +175,7 @@ const repoLead = (repo: string) => `${repoHeading(repo)}\n`;
 export function formatSearch(response: SearchResponse, opts: SearchFormatOptions): string {
 	const { FileMatches, Stats } = response.result;
 	const { maxChars, maxMatchesPerFile } = opts;
-	const ranked = FileMatches.slice(0, opts.maxFiles).map((f) =>
-		normalizeFile(f, opts, response.symbols),
-	);
+	const ranked = FileMatches.slice(0, opts.maxFiles).map((f) => normalizeFile(f, opts));
 	if (ranked.length === 0) return `No matches for \`${opts.query}\`.`;
 
 	const totalFiles = Math.max(Stats?.FileCount ?? 0, FileMatches.length);

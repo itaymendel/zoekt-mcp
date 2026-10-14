@@ -71,20 +71,6 @@ describe("Zoekt fixtures", () => {
 		expect(response.bodyText?.length).toBeGreaterThan(0);
 	});
 
-	test("api-search-sym is a POST with ctags SymbolInfo per chunk", () => {
-		const { request, response } = loadCase("api-search-sym");
-		const files = (
-			response.body as {
-				Result: { Files: { ChunkMatches: { SymbolInfo: { Sym: string; Kind: string }[] }[] }[] };
-			}
-		).Result.Files;
-		const infos = files.flatMap((f) => f.ChunkMatches.flatMap((c) => c.SymbolInfo));
-
-		expect(request.method).toBe("POST");
-		expect(infos.length).toBeGreaterThanOrEqual(4);
-		for (const info of infos) expect(info.Sym && info.Kind).toBeTruthy();
-	});
-
 	test("MANIFEST sha256 matches every case file", () => {
 		const manifest = loadManifest();
 		const files = readdirSync(CASES_URL).sort();
