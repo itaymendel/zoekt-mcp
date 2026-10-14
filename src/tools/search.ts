@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import { DEFAULT_OUTPUT_CHARS, formatSearch } from "../search-format.js";
-import type { ZoektClient } from "../zoekt/client.js";
+import type { Tool } from "./tool.js";
 
-export const searchSchema = z.object({
+const inputSchema = z.object({
 	query: z.string().min(1).describe("Zoekt query; syntax is in the tool description"),
 	maxFiles: z
 		.number()
@@ -21,11 +21,7 @@ export const searchSchema = z.object({
 		.describe("Number of context lines around each match (0-10)"),
 });
 
-export type SearchInput = z.infer<typeof searchSchema>;
-
-export const searchMeta = { title: "Search code", annotations: READ_ONLY_ANNOTATIONS };
-
-export const searchDescription = `Search code with Zoekt. Matches are grouped by repo and file with line numbers; pass the printed repo and path to read_file.
+const description = `Search code with Zoekt. Matches are grouped by repo and file with line numbers; pass the printed repo and path to read_file.
 
 ## Query syntax
 - Every word is an unanchored RE2 regex, not a literal: \`a.b\` also matches aXb. A space means AND (within one file), lowercase \`or\` means OR, and parentheses group. \`and\` is not an operator; it is searched as text. \`X or Y r:z\` means \`X or (Y r:z)\`, so write \`(X or Y) r:z\`.
@@ -47,22 +43,23 @@ export const searchDescription = `Search code with Zoekt. Matches are grouped by
 ## Output
 Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Results are bounded by maxFiles and an output size cap (\`[output truncated]\`); the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
 
-export async function executeSearch(
-	client: ZoektClient,
-	input: SearchInput,
-	ctx: { signal: AbortSignal },
-): Promise<string> {
-	const { query, maxFiles, contextLines } = input;
-	// Ask for one file more than shown, so Zoekt's own cap cannot hide that there were more.
-	const response = await client.search(
-		{ query, num: maxFiles + 1, contextLines },
-		{ signal: ctx.signal },
-	);
-
-	return formatSearch(response, {
-		query,
-		contextLines,
-		maxFiles,
-		maxChars: DEFAULT_OUTPUT_CHARS,
-	});
-}
+export const searchTool: Tool<typeof inputSchema> = {
+	name: "search",
+	title: "Search code",
+	annotations: READ_ONLY_ANNOTATIONS,
+	description,
+	inputSchema,
+	async execute(client, { query, maxFiles, contextLines }, ctx) {
+		// Ask for one file more than shown, so Zoekt's own cap cannot hide that there were more.
+		const response = await client.search(
+			{ query, num: maxFiles + 1, contextLines },
+			{ signal: ctx.signal },
+		);
+		return formatSearch(response, {
+			query,
+			contextLines,
+			maxFiles,
+			maxChars: DEFAULT_OUTPUT_CHARS,
+		});
+	},
+};

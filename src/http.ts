@@ -64,7 +64,7 @@ function bearerMatches(header: string | undefined, tokenDigest: Buffer): boolean
  * Remembers open sockets so they can be destroyed on shutdown. Under Bun,
  * `server.closeAllConnections()` does not release in-flight requests, so `close()` would hang.
  */
-export function trackSockets(server: Server): { destroyAll(): void } {
+function trackSockets(server: Server): { destroyAll(): void } {
 	const sockets = new Set<Socket>();
 	server.on("connection", (socket) => {
 		sockets.add(socket);
