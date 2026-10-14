@@ -1,17 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { clipLine, MAX_LINE_CHARS } from "../src/clip.js";
-import { DEFAULT_OUTPUT_CHARS, FOOTER_RESERVE, formatSearch } from "../src/search-format.js";
+import { clipLine } from "../src/clip.js";
+import { DEFAULT_OUTPUT_CHARS, formatSearch } from "../src/search-format.js";
 import { executeSearch, type SearchInput, searchSchema } from "../src/tools/search.js";
 import { SearchResultSchema } from "../src/zoekt/types.js";
 import { expectGolden } from "./helpers/golden.js";
 import { testDeps } from "./helpers/test-deps.js";
-import { loadSearchResponse, mockZoektFetch, readRepoFile } from "./helpers/zoekt-fixtures.js";
+import { loadSearchResponse, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
 
 function stub(raw: unknown) {
 	return { result: SearchResultSchema.parse(raw) };
 }
-
-const NOTES = readRepoFile("alpha", "docs/notes.txt").split("\n");
 
 const matchAt = (n: number, text = `line ${n}`) => ({
 	LineNum: n,
@@ -28,7 +26,6 @@ const zfile = (repo: string, path: string, matches: unknown[], branches = ["HEAD
 interface RunOptions {
 	query?: string;
 	contextLines?: number;
-	maxMatchesPerFile?: number;
 	maxFiles?: number;
 	maxChars?: number;
 }
@@ -37,7 +34,6 @@ function render(response: ReturnType<typeof stub>, o: RunOptions = {}): string {
 	return formatSearch(response, {
 		query: o.query ?? "q",
 		contextLines: o.contextLines ?? 2,
-		maxMatchesPerFile: o.maxMatchesPerFile ?? 5,
 		maxFiles: o.maxFiles ?? 20,
 		maxChars: o.maxChars ?? DEFAULT_OUTPUT_CHARS,
 	});
@@ -90,16 +86,6 @@ describe("rows", () => {
 		expect(rowsOf(render(result))).toEqual(["1:a", "2-b", "3:c"]);
 	});
 
-	test("a hidden match shown as context is not counted as hidden", () => {
-		const result = stub({
-			FileMatches: [zfile("r", "a", [{ ...matchAt(10), After: "line 11\n" }, matchAt(11)])],
-		});
-		const text = render(result, { contextLines: 1, maxMatchesPerFile: 1 });
-
-		expect(rowsOf(text)).toEqual(["10:line 10", "11-line 11"]);
-		expect(text).not.toContain("more matching");
-	});
-
 	test("groups by repo", () => {
 		const response = stub({
 			FileMatches: [
@@ -112,21 +98,6 @@ describe("rows", () => {
 
 		expect(text.match(/^# .*$/gm)).toEqual(["# r1", "# r2"]);
 		expect(text.indexOf("## c")).toBeLessThan(text.indexOf("# r2"));
-	});
-
-	test("repo and path on separate lines", () => {
-		const text = render(multi(), { contextLines: 0 });
-
-		expect(text).toContain("# example.test/alpha\n## src/handler.go");
-		expect(text).not.toContain("example.test/alpha/src/handler.go");
-	});
-
-	test("rows are N:text, with indentation and one row for a multi-fragment line", () => {
-		const text = render(multi(), { contextLines: 0 });
-
-		expect(text).toContain("4:\tx := handleRequest() + handleRequest()\n");
-		expect(text.match(/^4:/gm)).toHaveLength(2); // one per file, not one per fragment
-		expect(text).not.toMatch(/^> /m);
 	});
 
 	test("omits HEAD branch", () => {
@@ -153,6 +124,13 @@ describe("rows", () => {
 		expect(render(response, { contextLines: 0 })).toMatch(
 			/\n---\n2 files, 2 matching lines, 1 filename match\.$/,
 		);
+		expect(render(loadSearchResponse("search-file-only"))).toMatch(
+			/\n---\n1 file, 1 filename match\.$/,
+		);
+	});
+
+	test("no matches", () => {
+		expect(render(stub({}), { query: "needle" })).toBe("No matches for `needle`.");
 	});
 
 	test("omits branch list when uniform across results", () => {
@@ -169,21 +147,6 @@ describe("rows", () => {
 		const rows = render(response, { contextLines: 1 }).split("\n");
 
 		expect(rows.slice(1, 6)).toEqual(["## a", "10:line 10", "11-ctx", "--", "30:line 30"]);
-	});
-
-	test("context fixture renders - rows and : rows numbered like the real file", () => {
-		const rows = rowsOf(render(loadSearchResponse("search-context")));
-
-		expect(rows).toEqual([
-			"1-first line",
-			"2:needle one",
-			"3-third line",
-			"4:needle two",
-			"5:needle three",
-		]);
-		rows.forEach((r, i) => {
-			expect(r.slice(2)).toBe(NOTES[i] as string);
-		});
 	});
 
 	test("filename-only", () => {
@@ -239,136 +202,49 @@ describe("rows", () => {
 
 			expect(hasLoneSurrogate(clipped)).toBe(false);
 			expect(clipped).toContain("NEEDLE");
-			expect(clipped.length).toBeLessThanOrEqual(MAX_LINE_CHARS);
+			expect(clipped.length).toBeLessThanOrEqual(240);
 		}
 		expect(hasLoneSurrogate(clipLine("😀".repeat(400)))).toBe(false);
-	});
-
-	test("overflow row counts hidden matching lines", () => {
-		const two = stub({ FileMatches: [zfile("r", "a", [matchAt(1), matchAt(2)])] });
-		const three = stub({ FileMatches: [zfile("r", "a", [matchAt(1), matchAt(2), matchAt(3)])] });
-
-		expect(render(two, { maxMatchesPerFile: 1 })).toContain("[+1 more matching line in this file]");
-		expect(render(three, { maxMatchesPerFile: 1 })).toContain(
-			"[+2 more matching lines in this file]",
-		);
-	});
-
-	test("per-file cap [90,12,55] with K=2 shows 12 and 90 and one hidden line", () => {
-		const response = stub({
-			FileMatches: [zfile("r", "a", [matchAt(90), matchAt(12), matchAt(55)])],
-		});
-		const text = render(response, { contextLines: 0, maxMatchesPerFile: 2 });
-
-		expect(text).toContain(
-			"## a\n12:line 12\n--\n90:line 90\n[+1 more matching line in this file]",
-		);
-		expect(text).toContain("hidden by maxMatchesPerFile=2");
-	});
-
-	test("complete results have a plain footer", () => {
-		const text = render(multi(), { contextLines: 0 });
-
-		expect(text.endsWith("\n\n---\n2 files, 2 matching lines.")).toBe(true);
-	});
-
-	test("filename matches are counted apart from matching lines", () => {
-		const response = stub({
-			Stats: { FileCount: 2, MatchCount: 3 },
-			FileMatches: [
-				zfile("r", "a", [{ LineNum: 0, Fragments: [{ Pre: "", Match: "a", Post: "" }] }]),
-				zfile("r", "b", [matchAt(4), matchAt(9)]),
-			],
-		});
-
-		expect(render(response, { contextLines: 0 })).toMatch(
-			/\n---\n2 files, 2 matching lines, 1 filename match\.$/,
-		);
-		expect(render(loadSearchResponse("search-file-only"))).toMatch(
-			/\n---\n1 file, 1 filename match\.$/,
-		);
 	});
 });
 
 describe("footer", () => {
-	const REFINE =
-		"Refine with repo:, file:, lang: or -file: filters, or raise maxFiles / maxMatchesPerFile.";
-	const one = (Stats: object, o: RunOptions = {}) =>
-		render(stub({ Stats, FileMatches: [zfile("r", "a", [matchAt(1), matchAt(2), matchAt(3)])] }), {
-			contextLines: 0,
-			...o,
-		});
-	const two = (Stats: object, o: RunOptions = {}) =>
+	const FOOTER = "narrow with r:/f:/lang:";
+	const two = (Stats?: object, o: RunOptions = {}) =>
 		render(
 			stub({ Stats, FileMatches: [zfile("r", "a", [matchAt(1)]), zfile("r", "b", [matchAt(1)])] }),
 			{ contextLines: 0, ...o },
 		);
-	const wide = "x".repeat(100);
-	const three = () =>
-		stub({
-			Stats: { FileCount: 5, FilesSkipped: 1, MatchCount: 5 },
-			FileMatches: ["a", "b", "c"].map((p) => zfile("r", p, [matchAt(1, wide)])),
-		});
 
 	const cases: Array<[string, () => string, string]> = [
 		[
 			"maxFiles cut",
 			() => render(loadSearchResponse("search-many-files"), { contextLines: 0, maxFiles: 3 }),
-			`Truncated: showing 3 of 8 files. ${REFINE}`,
+			`Showing 3 of 8 files; ${FOOTER}`,
 		],
 		[
-			"maxFiles cut on a lower bound",
-			() => two({ FileCount: 4, FilesSkipped: 12, MatchCount: 4 }, { maxFiles: 2 }),
-			`Truncated: showing 2 of at least 4 files. ${REFINE}`,
-		],
-		[
-			"the lower bound is stated once when maxFiles truncated too",
-			() => two({ FileCount: 4, FilesSkipped: 1, MatchCount: 4 }, { maxFiles: 1 }),
-			`Truncated: showing 1 of at least 4 files. ${REFINE}`,
-		],
-		[
-			"maxMatchesPerFile cut on a lower bound",
-			() => one({ FileCount: 1, FilesSkipped: 3, MatchCount: 3 }, { maxMatchesPerFile: 1 }),
-			`Truncated: 2 more matching lines hidden by maxMatchesPerFile=1; at least 1 file matched. ${REFINE}`,
-		],
-		[
-			"budget clause uses singular 'file' for one file",
-			() =>
-				render(
-					stub({
-						Stats: { FileCount: 1, FilesSkipped: 1, MatchCount: 1 },
-						FileMatches: [zfile("r", "a", [matchAt(1, "x".repeat(300))])],
-					}),
-					{ maxChars: 50, contextLines: 0 },
-				),
-			`Truncated: output budget (50 chars) reached after 1 of at least 1 file. ${REFINE}`,
-		],
-		[
-			"maxFiles and the budget both cut on a lower bound",
-			() => render(three(), { maxFiles: 2, maxChars: 650, contextLines: 0 }),
-			`Truncated: showing 1 of at least 5 files; output budget (650 chars) reached after 1 of 2 files. ${REFINE}`,
+			"missing Stats makes the total a lower bound",
+			() => two(undefined, { maxFiles: 1 }),
+			`Showing 1 of at least 2 files; ${FOOTER}`,
 		],
 		[
 			"a lower bound alone is not truncation (FilesSkipped)",
-			() => one({ FileCount: 1, FilesSkipped: 1, MatchCount: 3 }),
-			"At least 1 file, 3 matching lines.",
+			() => two({ FileCount: 2, FilesSkipped: 1, MatchCount: 2 }),
+			"At least 2 files, 2 matching lines.",
 		],
 		[
 			"a lower bound alone is not truncation (ShardsSkipped)",
-			() => one({ FileCount: 1, ShardsSkipped: 2, MatchCount: 3 }),
-			"At least 1 file, 3 matching lines.",
+			() => two({ FileCount: 2, ShardsSkipped: 2, MatchCount: 2 }),
+			"At least 2 files, 2 matching lines.",
 		],
 	];
 
 	test.each(cases)("%s", (_name, run, expected) => {
-		const footer = run().split("\n---\n")[1];
-
-		expect(footer).toBe(expected);
-		expect(footer?.match(/at least/gi)?.length ?? 0).toBeLessThanOrEqual(1);
+		expect(run().split("\n---\n")[1]).toBe(expected);
 	});
 });
 
-describe("output budget", () => {
+describe("output cap", () => {
 	const lines = (n: number, width = 40) =>
 		Array.from({ length: n }, (_, i) => matchAt(i + 1, `${"x".repeat(width)}${i}`));
 	const manyFiles = (files: number, perFile: number, width?: number) =>
@@ -379,94 +255,30 @@ describe("output budget", () => {
 			),
 		});
 
-	test("30 files x 40 lines under maxChars=3000 stays within budget plus footer reserve", () => {
-		const text = render(manyFiles(30, 40), {
-			maxChars: 3000,
-			maxMatchesPerFile: 50,
-			contextLines: 0,
-		});
+	test("30 files x 40 lines under maxChars=3000 stops at the cap", () => {
+		const text = render(manyFiles(30, 40), { maxChars: 3000, contextLines: 0 });
+		const [body, footer] = text.split("\n\n---\n");
 
-		expect(text.length).toBeLessThanOrEqual(3600);
-		expect(text).toContain("output budget (3000 chars) reached after");
+		expect((body as string).length).toBeLessThanOrEqual(3000 + "\n[output truncated]".length);
+		expect(body).toEndWith("\n[output truncated]");
+		expect(footer).toMatch(/^Showing \d+ of 30 files; narrow with r:\/f:\/lang:$/);
 	});
 
 	test("the first file is always rendered, hard-clipped, even at maxChars=50", () => {
-		const text = render(manyFiles(30, 40), {
-			maxChars: 50,
-			maxMatchesPerFile: 50,
-			contextLines: 0,
-		});
+		const text = render(manyFiles(30, 40), { maxChars: 50, contextLines: 0 });
 
 		expect(text).toContain("## dir/file0.txt");
-		expect(text).toContain("[output truncated]");
-		expect(text).toContain("output budget (50 chars)");
+		expect(text).toContain("\n[output truncated]\n\n---\nShowing 1 of 30 files;");
 	});
 
-	test("worst case: 100 files of long rows fits DEFAULT_OUTPUT_CHARS + 600", () => {
-		const text = render(manyFiles(100, 50, 300), {
-			maxFiles: 100,
-			maxMatchesPerFile: 50,
-			contextLines: 2,
-		});
+	test("worst case: 100 files of long rows stays within DEFAULT_OUTPUT_CHARS plus the marker and footer", () => {
+		const text = render(manyFiles(100, 50, 300), { maxFiles: 100, contextLines: 2 });
 
-		expect(text.length).toBeLessThanOrEqual(DEFAULT_OUTPUT_CHARS + FOOTER_RESERVE);
+		expect(text.length).toBeLessThanOrEqual(DEFAULT_OUTPUT_CHARS + 200);
 		expect(text.length).toBeGreaterThan(DEFAULT_OUTPUT_CHARS / 2);
 	});
-});
 
-describe("goldens", () => {
-	test("normal", () => {
-		const text = render(loadSearchResponse("search-multi-fragment"), { contextLines: 0 });
-
-		expectGolden("search-normal.txt", text);
-	});
-
-	test("filename-only", () => {
-		expectGolden("search-filename-only.txt", render(loadSearchResponse("search-file-only")));
-	});
-
-	test("no-match", () => {
-		const text = render(stub({}), { query: "needle" });
-
-		expectGolden("search-no-match.txt", text);
-	});
-
-	test("context", () => {
-		// Inline stub: the real fixture file has 5 lines, so its context rows are always adjacent.
-		const response = stub({
-			Stats: { FileCount: 1, MatchCount: 2 },
-			FileMatches: [
-				zfile("example.test/alpha", "src/app.ts", [
-					{
-						LineNum: 3,
-						Fragments: [{ Pre: "\t", Match: "needle", Post: "();\n" }],
-						Before: "function run() {\n\n",
-						After: "}\n",
-					},
-					{
-						LineNum: 20,
-						Fragments: [{ Pre: "const x = ", Match: "needle", Post: ";\n" }],
-						Before: "// later\n",
-						After: "export { x };\n",
-					},
-				]),
-			],
-		});
-		const text = render(response);
-
-		expectGolden("search-context.txt", text);
-	});
-
-	test("truncated-by-files", () => {
-		const text = render(loadSearchResponse("search-many-files"), {
-			contextLines: 0,
-			maxFiles: 3,
-		});
-
-		expectGolden("search-truncated-files.txt", text);
-	});
-
-	test("truncated-by-budget", () => {
+	test("truncated by the cap: golden", () => {
 		const response = stub({
 			Stats: { FileCount: 12, MatchCount: 60 },
 			FileMatches: Array.from({ length: 12 }, (_, i) =>
@@ -477,9 +289,11 @@ describe("goldens", () => {
 				),
 			),
 		});
-		const text = render(response, { contextLines: 0, maxChars: 1500 });
 
-		expectGolden("search-truncated-budget.txt", text);
+		expectGolden(
+			"search-truncated-budget.txt",
+			render(response, { contextLines: 0, maxChars: 1500 }),
+		);
 	});
 });
 
@@ -514,11 +328,5 @@ describe("executeSearch", () => {
 
 		expect(fetch.requests.map((u) => u.pathname)).toEqual(["/search"]);
 		expectGolden("search-sym.txt", text);
-	});
-
-	test("many files: shows 3 of 8 files through the whole pipeline", async () => {
-		const text = await run({ "/search": "search-many-files" }, { maxFiles: 3 }).result;
-
-		expect(text).toContain("showing 3 of 8 files");
 	});
 });

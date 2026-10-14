@@ -12,13 +12,6 @@ export const searchSchema = z.object({
 		.max(100)
 		.default(20)
 		.describe("Maximum number of files to return (1-100)"),
-	maxMatchesPerFile: z
-		.number()
-		.int()
-		.min(1)
-		.max(50)
-		.default(5)
-		.describe("Maximum matching lines shown per file (1-50); context lines are not counted"),
 	contextLines: z
 		.number()
 		.int()
@@ -52,14 +45,14 @@ export const searchDescription = `Search code with Zoekt. Matches are grouped by
 - \`"v1\\\\.2" lang:go\`
 
 ## Output
-Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Results are bounded by maxFiles, maxMatchesPerFile and an output size budget; the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
+Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Results are bounded by maxFiles and an output size cap (\`[output truncated]\`); the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
 
 export async function executeSearch(
 	client: ZoektClient,
 	input: SearchInput,
 	ctx: { signal: AbortSignal },
 ): Promise<string> {
-	const { query, maxFiles, maxMatchesPerFile, contextLines } = input;
+	const { query, maxFiles, contextLines } = input;
 	// Ask for one file more than shown, so Zoekt's own cap cannot hide that there were more.
 	const response = await client.search(
 		{ query, num: maxFiles + 1, contextLines },
@@ -70,7 +63,6 @@ export async function executeSearch(
 		query,
 		contextLines,
 		maxFiles,
-		maxMatchesPerFile,
 		maxChars: DEFAULT_OUTPUT_CHARS,
 	});
 }

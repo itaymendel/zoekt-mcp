@@ -32,5 +32,28 @@
 --
 50:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 2.5
 
+## pkg/mod3.go
+10:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 3.1
+--
+20:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 3.2
+--
+30:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 3.3
+--
+40:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 3.4
+--
+50:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 3.5
+
+## pkg/mod4.go
+10:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 4.1
+--
+20:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 4.2
+--
+30:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 4.3
+--
+40:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 4.4
+--
+50:needle wwwwwwwwwwwwwwwwwwwwwwwwwwwwww 4.5
+[output truncated]
+
 ---
-Truncated: output budget (1500 chars) reached after 3 of 12 files. Refine with repo:, file:, lang: or -file: filters, or raise maxFiles / maxMatchesPerFile.
+Showing 5 of 12 files; narrow with r:/f:/lang:

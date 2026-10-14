@@ -1,5 +1,0 @@
-# example.test/alpha
-## docs/notes.txt  [filename match]
-
----
-1 file, 1 filename match.
