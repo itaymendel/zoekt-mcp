@@ -52,14 +52,6 @@ function cleanPath(path: string): string {
 	return path.replace(/^(?:\.?\/)+/, "");
 }
 
-interface PrintFailure {
-	repo: string;
-	path: string;
-	branch?: string;
-	/** Indexed branch names of `repo` (default branch first); undefined when the repo is not indexed. */
-	indexedBranches(): Promise<string[] | undefined>;
-}
-
 export async function executeReadFile(
 	client: ZoektClient,
 	input: ReadFileInput,
@@ -103,7 +95,16 @@ export async function executeReadFile(
 }
 
 /** The error to show for a failed /print: typed Zoekt errors get a specific message, others pass through. */
-async function explainPrintError(error: unknown, ctx: PrintFailure): Promise<unknown> {
+async function explainPrintError(
+	error: unknown,
+	ctx: {
+		repo: string;
+		path: string;
+		branch?: string;
+		/** Indexed branch names of `repo` (default branch first); undefined when the repo is not indexed. */
+		indexedBranches(): Promise<string[] | undefined>;
+	},
+): Promise<unknown> {
 	const { repo, path, branch } = ctx;
 	if (error instanceof ZoektFileNotFoundError) {
 		const names = await ctx.indexedBranches();
@@ -121,11 +122,9 @@ async function explainPrintError(error: unknown, ctx: PrintFailure): Promise<unk
 				`${where} exist (content differs between branches). Pass branch. ${listing}`,
 			);
 		}
-		const hint =
-			branch === names[0]
-				? `Pass branch: "HEAD" to read the default branch.`
-				: "This is a known limitation: Zoekt matches branch names as substrings, so a branch whose name is contained in another branch's name cannot be selected on its own.";
-		return new Error(`${where} match branch "${branch}". ${hint} ${listing}`);
+		return new Error(
+			`${where} match branch "${branch}". ${branch === names[0] ? `Pass branch: "HEAD" to read the default branch. ` : ""}${listing}`,
+		);
 	}
 	if (error instanceof ZoektFileNotIndexedError) {
 		return new Error(`${error.message}. read_file returns indexed text files only.`);
