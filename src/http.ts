@@ -12,7 +12,7 @@ import pkg from "../package.json";
 import type { Logger } from "./logger.js";
 import { getErrorMessage } from "./utils.js";
 
-const DEFAULT_MAX_BODY_BYTES = 1_048_576;
+const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export interface HttpServerOptions {
@@ -25,12 +25,8 @@ export interface HttpServerOptions {
 	shutdownTimeoutMs?: number;
 	/** Extra Host hostnames (port-agnostic) on top of localhost; IPv6 literals in brackets. */
 	allowedHosts?: string[];
-	/** Extra allowed browser origins, already normalized (`URL.origin`, e.g. https://app.example.com); also granted CORS. */
-	allowedOrigins?: string[];
 	/** When set, /mcp requires `Authorization: Bearer <token>`. */
 	authToken?: string;
-	/** Largest accepted /mcp request body (default 1 MiB). */
-	maxBodyBytes?: number;
 }
 
 export interface HttpServer {
@@ -53,10 +49,6 @@ function sendJson(
 	res.writeHead(status, { "Content-Type": "application/json", ...headers });
 	res.end(JSON.stringify(body));
 }
-
-const CORS_METHODS = "GET, POST, DELETE, OPTIONS";
-const DEFAULT_CORS_HEADERS =
-	"content-type, accept, authorization, mcp-protocol-version, mcp-session-id, last-event-id";
 
 const UNAUTHORIZED_HEADERS = { "WWW-Authenticate": 'Bearer realm="zoekt-mcp"' };
 
@@ -93,53 +85,26 @@ export function createHttpServer({
 	logger,
 	shutdownTimeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS,
 	allowedHosts = [],
-	allowedOrigins = [],
 	authToken,
-	maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
 }: HttpServerOptions): HttpServer {
 	const onerror = (error: Error) => logger.error({ error: getErrorMessage(error) }, "MCP error");
-	// Content-Length is rejected up front (bodyGuard) before anything is read; the SDK cap
-	// below is what stops chunked bodies, which carry no length.
-	const handler = createMcpHandler(createMcpServer, { onerror, maxRequestBodySize: maxBodyBytes });
-	const mcpHandler = toNodeHandler(handler, { onerror, maxRequestBodySize: maxBodyBytes });
+	const handler = createMcpHandler(createMcpServer, {
+		onerror,
+		maxRequestBodySize: MAX_BODY_BYTES,
+	});
+	const mcpHandler = toNodeHandler(handler, { onerror, maxRequestBodySize: MAX_BODY_BYTES });
 
 	const validateHost = hostHeaderValidation([...localhostAllowedHostnames(), ...allowedHosts]);
-	const corsOrigins = new Set(allowedOrigins);
-	const validateOrigin = originValidation([
-		...localhostAllowedOrigins(),
-		...allowedOrigins.map((origin) => new URL(origin).hostname),
-	]);
+	const validateOrigin = originValidation(localhostAllowedOrigins());
 	const tokenDigest = authToken === undefined ? undefined : sha256(authToken);
 
 	// Each validator answers the request itself and returns false when it rejects.
-	// Order matters: Host -> Origin -> CORS/preflight -> auth -> body cap -> SDK.
+	// Order matters: Host -> Origin -> auth -> SDK (which enforces the body cap).
 	const mcp: Route = async (req, res) => {
 		if (!validateHost(req, res) || !validateOrigin(req, res)) return;
 
-		// Echo explicitly allowed origins and answer their preflight; nothing else gets CORS.
-		const origin = req.headers.origin;
-		const corsAllowed = origin !== undefined && corsOrigins.has(origin);
-		if (corsAllowed) {
-			res.setHeader("Access-Control-Allow-Origin", origin);
-			res.setHeader("Vary", "Origin");
-		}
-		if (req.method === "OPTIONS" && origin !== undefined) {
-			if (!corsAllowed) return sendJson(res, 403, { error: "Origin not allowed" });
-			res.setHeader("Access-Control-Allow-Methods", CORS_METHODS);
-			res.setHeader(
-				"Access-Control-Allow-Headers",
-				req.headers["access-control-request-headers"] ?? DEFAULT_CORS_HEADERS,
-			);
-			res.writeHead(204).end();
-			return;
-		}
-
 		if (tokenDigest !== undefined && !bearerMatches(req.headers.authorization, tokenDigest)) {
 			return sendJson(res, 401, { error: "Unauthorized" }, UNAUTHORIZED_HEADERS);
-		}
-
-		if (Number(req.headers["content-length"]) > maxBodyBytes) {
-			return sendJson(res, 413, { error: `Request body exceeds ${maxBodyBytes} bytes` });
 		}
 
 		await mcpHandler(req, res);

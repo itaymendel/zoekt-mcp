@@ -105,13 +105,8 @@ Examples: `handleRequest\( lang:go -f:_test`, `sym:Server f:\.ts$`, `type:file f
 
 ## Security
 
-- **Loopback by default.** HTTP binds to `127.0.0.1`. Binding any other address without `MCP_AUTH_TOKEN` (or `MCP_AUTH_TOKEN_FILE`) is refused: the server exits with code 2 unless `MCP_ALLOW_UNAUTHENTICATED=true`.
-- **Bearer token.** `MCP_AUTH_TOKEN` or `MCP_AUTH_TOKEN_FILE` (not both) sets a token of at least 16 characters. `/mcp` then requires `Authorization: Bearer <token>`, compared in constant time; the token is never logged.
-- **Host and Origin validation** on `/mcp` is always on (DNS-rebinding protection). Loopback names are always allowed; add others with `MCP_ALLOWED_HOSTS` (hostnames without ports; IPv6 literals in brackets) and `MCP_ALLOWED_ORIGINS` (browser origins, which are also granted CORS).
-- **Body cap.** Request bodies over 1 MiB get 413.
-- **Zoekt credentials.** `ZOEKT_URL=https://user:pass@host` is sent as HTTP Basic auth and never appears in logs or errors.
-- **Behind a reverse proxy**, terminate TLS there, forward the original `Host`, and list the public hostname in `MCP_ALLOWED_HOSTS`. Do not expose the server without a token.
-- `/healthz` is exempt from these checks.
+HTTP binds to `127.0.0.1`; any other bind needs `MCP_AUTH_TOKEN` (or `MCP_AUTH_TOKEN_FILE`) unless `MCP_ALLOW_UNAUTHENTICATED=true`. `/mcp` validates Host and Origin (loopback always allowed; add hostnames with `MCP_ALLOWED_HOSTS`), caps bodies at 1 MiB, and requires `Authorization: Bearer <token>` when a token is set. `/healthz` is exempt.
+Credentials in `ZOEKT_URL` are sent as Basic auth and never logged. See the table below for every setting.
 
 ## Configuration
 
@@ -124,9 +119,7 @@ CLI flags take precedence over environment variables. Empty values count as unse
 | `--port` | `MCP_PORT` | `3000` | HTTP port |
 | `--host` | `MCP_HOST` | `127.0.0.1` | HTTP bind address |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` (logs go to stderr) |
-| `--timeout` | `ZOEKT_TIMEOUT_MS` | `30000` | Zoekt request timeout in ms (1000 to 300000) |
 | | `MCP_ALLOWED_HOSTS` | none | Extra `Host` hostnames, comma-separated |
-| | `MCP_ALLOWED_ORIGINS` | none | Extra allowed browser origins, comma-separated |
 | | `MCP_AUTH_TOKEN` | none | Bearer token for `/mcp` (at least 16 characters) |
 | | `MCP_AUTH_TOKEN_FILE` | none | Read the token from a file (exclusive with `MCP_AUTH_TOKEN`) |
 | | `MCP_ALLOW_UNAUTHENTICATED` | `false` | `true` allows a non-loopback bind without a token |

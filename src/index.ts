@@ -10,6 +10,8 @@ import { createMcpServer } from "./server.js";
 import { getErrorMessage, redactUrl } from "./utils.js";
 import { ZoektClient } from "./zoekt/client.js";
 
+const ZOEKT_TIMEOUT_MS = 30_000;
+
 function printHelp(): void {
 	console.log(`zoekt-mcp - MCP server for Zoekt code search
 
@@ -21,13 +23,12 @@ Options:
   --port <number>      HTTP port (default: 3000)
   --host <address>     HTTP bind address (default: 127.0.0.1)
   --log-level <level>  debug, info, warn or error (default: info)
-  --timeout <ms>       Zoekt request timeout (default: 30000)
   -h, --help           Show this help
   -v, --version        Show the version
 
 Every option also has an environment variable (--url is ZOEKT_URL, and so on).
 HTTP security settings are environment-only: MCP_AUTH_TOKEN, MCP_AUTH_TOKEN_FILE,
-MCP_ALLOWED_HOSTS, MCP_ALLOWED_ORIGINS and MCP_ALLOW_UNAUTHENTICATED.
+MCP_ALLOWED_HOSTS and MCP_ALLOW_UNAUTHENTICATED.
 Exit code 2 means a usage or configuration error.
 
 Example: zoekt-mcp --url http://localhost:6070
@@ -42,7 +43,6 @@ function parseCliArgs(): Record<string, string | undefined> {
 			port: { type: "string" },
 			host: { type: "string" },
 			"log-level": { type: "string" },
-			timeout: { type: "string" },
 			help: { type: "boolean", short: "h" },
 			version: { type: "boolean", short: "v" },
 		},
@@ -65,7 +65,6 @@ function parseCliArgs(): Record<string, string | undefined> {
 		mcpPort: values.port,
 		mcpHost: values.host,
 		logLevel: values["log-level"],
-		zoektTimeoutMs: values.timeout,
 	};
 }
 
@@ -85,7 +84,7 @@ async function main(): Promise<void> {
 		// Built once; the factory below runs per request (HTTP) or per connection (stdio).
 		const client = new ZoektClient({
 			baseUrl: config.zoektUrl,
-			timeoutMs: config.zoektTimeoutMs,
+			timeoutMs: ZOEKT_TIMEOUT_MS,
 			logger,
 		});
 		const createServer = () => createMcpServer({ client, logger });
@@ -103,7 +102,6 @@ async function main(): Promise<void> {
 				port: config.mcpPort,
 				logger,
 				allowedHosts: config.mcpAllowedHosts,
-				allowedOrigins: config.mcpAllowedOrigins,
 				authToken: config.mcpAuthToken,
 			});
 

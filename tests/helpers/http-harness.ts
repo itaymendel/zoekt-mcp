@@ -18,28 +18,21 @@ export interface TestServer {
 }
 
 export type TestServerOptions = Partial<
-	Pick<
-		HttpServerOptions,
-		"host" | "allowedHosts" | "allowedOrigins" | "authToken" | "maxBodyBytes" | "shutdownTimeoutMs"
-	>
+	Pick<HttpServerOptions, "host" | "allowedHosts" | "authToken" | "shutdownTimeoutMs">
 > & {
 	/** Use a real upstream (e.g. fake-zoekt) instead of the fixture-served mock fetch. */
 	zoektBaseUrl?: string;
-	zoektTimeoutMs?: number;
 };
 
 /** Starts the real HTTP server on port 0 (127.0.0.1 unless `host`) backed by fixture-served Zoekt. */
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
-	const { zoektBaseUrl, zoektTimeoutMs, host = "127.0.0.1", ...httpOptions } = options;
+	const { zoektBaseUrl, host = "127.0.0.1", ...httpOptions } = options;
 	const zoektFetch = mockZoektFetch({
 		"/search": "search-multi-fragment",
 		"/print": "print-ok",
 	});
 	// A real upstream (fake-zoekt) uses the global fetch; otherwise fixtures answer in-process.
-	const deps = testDeps(zoektBaseUrl ? undefined : zoektFetch, {
-		baseUrl: zoektBaseUrl,
-		timeoutMs: zoektTimeoutMs,
-	});
+	const deps = testDeps(zoektBaseUrl ? undefined : zoektFetch, { baseUrl: zoektBaseUrl });
 	const http = createHttpServer({
 		createServer: () => createMcpServer(deps),
 		host,
