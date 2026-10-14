@@ -158,6 +158,13 @@ describe("HTTP security keys", () => {
 	describe("non-loopback bind", () => {
 		const http = { ...URL_ENV, MCP_TRANSPORT: "http" };
 
+		test("without a token refuses to start and names MCP_AUTH_TOKEN", () => {
+			for (const host of ["0.0.0.0", "10.1.2.3", "::", "example.com"]) {
+				const issues = issuesOf(() => loadConfig({}, { ...http, MCP_HOST: host }));
+				expect(issues[0]?.message).toContain("MCP_AUTH_TOKEN");
+			}
+		});
+
 		test("loopback names are always allowed", () => {
 			for (const host of ["localhost", "127.0.0.1", "127.9.9.9", "::1"]) {
 				expect(loadConfig({}, { ...http, MCP_HOST: host }).mcpHost).toBe(host);
