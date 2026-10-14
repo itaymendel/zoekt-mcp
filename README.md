@@ -120,7 +120,7 @@ CLI flags take precedence over environment variables. Empty values count as unse
 - **`Cannot reach Zoekt at ... (ECONNREFUSED)`.** Check `ZOEKT_URL` and that `zoekt-webserver` is running; from a container, `localhost` is the container itself.
 - **`NOT-INDEXED` from `read_file`.** Zoekt skips binary and oversized files, so they cannot be read through this server.
 - **`r:name` finds nothing.** Repository regexes are case-sensitive; use `r:(?i)name`, or run `list_repos` for the exact name.
-- **403 on `/mcp`.** The `Host` or `Origin` header is not allowed; see `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS`.
+- **403 on `/mcp`.** The `Host` or `Origin` header is not allowed; see `MCP_ALLOWED_HOSTS`.
 
 ## Upgrading
 

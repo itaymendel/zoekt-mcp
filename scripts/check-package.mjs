@@ -34,6 +34,8 @@ const run = (args, cwd) => {
 const spawnBin = (bin, args) => {
 	const child = spawn(bin, [...args, "--url", "http://127.0.0.1:9", "--log-level", "error"]);
 	children.push(child);
+	child.stdout.setEncoding("utf8");
+	child.on("error", (err) => fail(`failed to spawn ${bin}: ${err.message}`));
 	child.stderr.pipe(process.stderr);
 	child.on("exit", (code) => !child.killed && fail(`server exited early (code ${code})`));
 	setTimeout(() => fail("timed out after 15s"), 15_000).unref();
@@ -75,7 +77,9 @@ const tools = await new Promise((resolve) => {
 	let buffered = "";
 	stdio.stdout.on("data", (chunk) => {
 		buffered += chunk;
-		for (const line of buffered.split("\n")) {
+		const lines = buffered.split("\n");
+		buffered = lines.pop() ?? "";
+		for (const line of lines) {
 			if (!line.startsWith("{")) continue;
 			const message = JSON.parse(line);
 			if (message.id === 2) resolve((message.result?.tools ?? []).map((t) => t.name).sort());
