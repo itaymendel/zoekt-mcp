@@ -13,53 +13,21 @@
 		"contentType": "application/json",
 		"body": {
 			"result": {
-				"Last": {
-					"Query": "handleRequest",
-					"Num": 50,
-					"Ctx": 0,
-					"AutoFocus": true,
-					"Debug": false
-				},
-				"QueryStr": "handleRequest",
-				"Query": "case_substr:\"handleRequest\"",
 				"Stats": {
-					"ContentBytesLoaded": 136,
-					"IndexBytesLoaded": 8,
-					"Crashes": 0,
-					"Duration": 0,
 					"FileCount": 2,
-					"ShardFilesConsidered": 0,
-					"FilesConsidered": 2,
-					"FilesLoaded": 2,
-					"FilesSkipped": 0,
-					"FilesSkippedDueToCancellation": 0,
-					"ShardsScanned": 2,
-					"ShardsSkipped": 0,
-					"ShardsSkippedFilter": 1,
 					"MatchCount": 2,
-					"NgramMatches": 3,
-					"NgramLookups": 30,
-					"Wait": 0,
-					"MatchTreeConstruction": 0,
-					"MatchTreeSearch": 0,
-					"RegexpsConsidered": 0,
-					"FlushReason": 0
+					"FilesSkipped": 0,
+					"ShardsSkipped": 0
 				},
-				"Duration": 0,
 				"FileMatches": [
 					{
 						"FileName": "src/handler.go",
 						"Repo": "example.test/beta",
-						"ResultID": "example.test/beta:src/handler.go",
-						"Language": "Go",
-						"DuplicateID": "",
 						"Branches": [
 							"HEAD"
 						],
 						"Matches": [
 							{
-								"URL": "print?b=HEAD&f=src%2Fhandler.go&q=handleRequest&r=example.test%2Fbeta#l4",
-								"FileName": "src/handler.go",
 								"LineNum": 4,
 								"Fragments": [
 									{
@@ -69,15 +37,11 @@
 									}
 								]
 							}
-						],
-						"URL": "print?b=HEAD&f=src%2Fhandler.go&q=handleRequest&r=example.test%2Fbeta"
+						]
 					},
 					{
 						"FileName": "src/handler.go",
 						"Repo": "example.test/alpha",
-						"ResultID": "example.test/alpha:src/handler.go",
-						"Language": "Go",
-						"DuplicateID": "",
 						"Branches": [
 							"main",
 							"main-old",
@@ -85,8 +49,6 @@
 						],
 						"Matches": [
 							{
-								"URL": "print?b=main&f=src%2Fhandler.go&q=handleRequest&r=example.test%2Falpha#l4",
-								"FileName": "src/handler.go",
 								"LineNum": 4,
 								"Fragments": [
 									{
@@ -101,8 +63,7 @@
 									}
 								]
 							}
-						],
-						"URL": "print?b=main&f=src%2Fhandler.go&q=handleRequest&r=example.test%2Falpha"
+						]
 					}
 				]
 			}

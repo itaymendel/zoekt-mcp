@@ -60,7 +60,7 @@ function formatRepoLine(repo: RepoListWire["Repos"][number]): string {
 export const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
 
 /** Base-1024 size with one decimal above 1 KiB. */
-export function formatBytes(bytes: number): string {
+function formatBytes(bytes: number): string {
 	const units = ["B", "KiB", "MiB", "GiB", "TiB"];
 	let value = bytes;
 	let unit = 0;

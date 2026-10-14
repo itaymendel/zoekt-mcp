@@ -51,6 +51,7 @@ describe("tool metadata", () => {
 		expect(required("search")).toEqual(["query"]);
 		expect([...required("read_file")].sort()).toEqual(["path", "repo"]);
 		expect(required("list_repos")).toEqual([]);
+		expect(Object.keys(props("search"))).toEqual(["query", "maxFiles", "contextLines"]);
 		expect(Object.keys(props("list_repos"))).toEqual(["filter", "limit", "offset"]);
 		expect(Object.keys(props("read_file"))).toEqual([
 			"repo",

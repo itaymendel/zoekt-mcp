@@ -15,8 +15,9 @@ import {
 	ZoektFileNotIndexedError,
 } from "../zoekt/errors.js";
 import { exactRepoAtom } from "../zoekt/query.js";
+import type { Tool } from "./tool.js";
 
-export const readFileSchema = z.object({
+const inputSchema = z.object({
 	repo: z.string().min(1).describe("Exact repository name, as shown by list_repos or search"),
 	path: z
 		.string()
@@ -35,11 +36,7 @@ export const readFileSchema = z.object({
 		.describe(`Last line to return (default: startLine + ${DEFAULT_WINDOW_LINES - 1})`),
 });
 
-export type ReadFileInput = z.infer<typeof readFileSchema>;
-
-export const readFileMeta = { title: "Read file", annotations: READ_ONLY_ANNOTATIONS };
-
-export const readFileDescription = `Read a file from an indexed repository as numbered lines (\`N:text\`).
+const description = `Read a file from an indexed repository as numbered lines (\`N:text\`).
 
 \`repo\` and \`path\` are exactly as search prints them (\`# <repo>\`, \`## <path>\`). \`startLine\` and \`endLine\` are 1-based and inclusive. The default is ${DEFAULT_WINDOW_LINES} lines, the maximum ${MAX_WINDOW_LINES}, and output is capped at ${MAX_OUTPUT_CHARS.toLocaleString("en-US")} characters; when cut, the footer gives the \`startLine\` to continue from.
 
@@ -52,9 +49,9 @@ function cleanPath(path: string): string {
 	return path.replace(/^(?:\.?\/)+/, "");
 }
 
-export async function executeReadFile(
+async function readFile(
 	client: ZoektClient,
-	input: ReadFileInput,
+	input: z.infer<typeof inputSchema>,
 	ctx: { signal: AbortSignal },
 ): Promise<string> {
 	const { repo, branch } = input;
@@ -137,3 +134,12 @@ function repoNotFound(repo: string): Error {
 		`Repository not found: ${repo}. Use list_repos to find the exact repository name.`,
 	);
 }
+
+export const readFileTool: Tool<typeof inputSchema> = {
+	name: "read_file",
+	title: "Read file",
+	annotations: READ_ONLY_ANNOTATIONS,
+	description,
+	inputSchema,
+	execute: readFile,
+};

@@ -13,46 +13,16 @@
 		"contentType": "application/json",
 		"body": {
 			"result": {
-				"Last": {
-					"Query": "sym:lookup",
-					"Num": 50,
-					"Ctx": 0,
-					"AutoFocus": true,
-					"Debug": false
-				},
-				"QueryStr": "sym:lookup",
-				"Query": "sym:substr:\"lookup\"",
 				"Stats": {
-					"ContentBytesLoaded": 376,
-					"IndexBytesLoaded": 11,
-					"Crashes": 0,
-					"Duration": 0,
 					"FileCount": 2,
-					"ShardFilesConsidered": 0,
-					"FilesConsidered": 2,
-					"FilesLoaded": 2,
-					"FilesSkipped": 0,
-					"FilesSkippedDueToCancellation": 0,
-					"ShardsScanned": 3,
-					"ShardsSkipped": 0,
-					"ShardsSkippedFilter": 0,
 					"MatchCount": 4,
-					"NgramMatches": 4,
-					"NgramLookups": 88,
-					"Wait": 0,
-					"MatchTreeConstruction": 0,
-					"MatchTreeSearch": 0,
-					"RegexpsConsidered": 0,
-					"FlushReason": 0
+					"FilesSkipped": 0,
+					"ShardsSkipped": 0
 				},
-				"Duration": 0,
 				"FileMatches": [
 					{
 						"FileName": "src/registry.go",
 						"Repo": "example.test/alpha",
-						"ResultID": "example.test/alpha:src/registry.go",
-						"Language": "Go",
-						"DuplicateID": "",
 						"Branches": [
 							"main",
 							"main-old",
@@ -60,8 +30,6 @@
 						],
 						"Matches": [
 							{
-								"URL": "print?b=main&f=src%2Fregistry.go&q=sym%3Alookup&r=example.test%2Falpha#l5",
-								"FileName": "src/registry.go",
 								"LineNum": 5,
 								"Fragments": [
 									{
@@ -72,8 +40,6 @@
 								]
 							},
 							{
-								"URL": "print?b=main&f=src%2Fregistry.go&q=sym%3Alookup&r=example.test%2Falpha#l9",
-								"FileName": "src/registry.go",
 								"LineNum": 9,
 								"Fragments": [
 									{
@@ -83,15 +49,11 @@
 									}
 								]
 							}
-						],
-						"URL": "print?b=main&f=src%2Fregistry.go&q=sym%3Alookup&r=example.test%2Falpha"
+						]
 					},
 					{
 						"FileName": "src/registry.ts",
 						"Repo": "example.test/alpha",
-						"ResultID": "example.test/alpha:src/registry.ts",
-						"Language": "TypeScript",
-						"DuplicateID": "",
 						"Branches": [
 							"main",
 							"main-old",
@@ -99,8 +61,6 @@
 						],
 						"Matches": [
 							{
-								"URL": "print?b=main&f=src%2Fregistry.ts&q=sym%3Alookup&r=example.test%2Falpha#l2",
-								"FileName": "src/registry.ts",
 								"LineNum": 2,
 								"Fragments": [
 									{
@@ -111,8 +71,6 @@
 								]
 							},
 							{
-								"URL": "print?b=main&f=src%2Fregistry.ts&q=sym%3Alookup&r=example.test%2Falpha#l7",
-								"FileName": "src/registry.ts",
 								"LineNum": 7,
 								"Fragments": [
 									{
@@ -122,8 +80,7 @@
 									}
 								]
 							}
-						],
-						"URL": "print?b=main&f=src%2Fregistry.ts&q=sym%3Alookup&r=example.test%2Falpha"
+						]
 					}
 				]
 			}

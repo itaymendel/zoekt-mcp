@@ -79,7 +79,7 @@ The HTTP transport is stateless Streamable HTTP on `POST /mcp`. `GET /healthz` r
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `search` | Search code with Zoekt query syntax | `query`, `maxFiles` (1-100, default 20), `maxMatchesPerFile` (1-50, default 5), `contextLines` (0-10, default 2) |
+| `search` | Search code with Zoekt query syntax | `query`, `maxFiles` (1-100, default 20), `contextLines` (0-10, default 2) |
 | `list_repos` | List indexed repositories | `filter` (regex on the name, case-insensitive), `limit` (1-200, default 50), `offset` |
 | `read_file` | Read a file as numbered lines | `repo`, `path`, `branch`, `startLine`, `endLine` (500 lines by default, 2000 at most) |
 

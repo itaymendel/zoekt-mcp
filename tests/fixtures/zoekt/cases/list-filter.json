@@ -12,49 +12,29 @@
 		"contentType": "application/json",
 		"body": {
 			"repos": {
-				"Last": {
-					"Query": "r:\"(?i)ALPHA\"",
-					"Num": 0,
-					"Ctx": 0,
-					"AutoFocus": true,
-					"Debug": false
-				},
 				"Stats": {
-					"Repos": 1,
-					"Shards": 1,
-					"Documents": 15,
-					"IndexBytes": 1028,
-					"ContentBytes": 816,
-					"NewLinesCount": 43,
-					"DefaultBranchNewLinesCount": 40,
-					"OtherBranchesNewLinesCount": 81
+					"Repos": 1
 				},
 				"Repos": [
 					{
 						"Name": "example.test/alpha",
-						"URL": "",
 						"IndexTime": "1970-01-01T00:00:00Z",
 						"Branches": [
 							{
 								"Name": "main",
-								"Version": "65215178838c403c2b1ac794a567d135dff71cfb",
-								"URL": ""
+								"Version": "65215178838c403c2b1ac794a567d135dff71cfb"
 							},
 							{
 								"Name": "main-old",
-								"Version": "d2e349ab119c2f799d46b2da63e763e3e7e69c9a",
-								"URL": ""
+								"Version": "d2e349ab119c2f799d46b2da63e763e3e7e69c9a"
 							},
 							{
 								"Name": "feature",
-								"Version": "9296f2d10d2062d0bdfb16c00bb5789f42c06a11",
-								"URL": ""
+								"Version": "9296f2d10d2062d0bdfb16c00bb5789f42c06a11"
 							}
 						],
 						"Files": 15,
-						"Metadata": null,
-						"Size": 816,
-						"MemorySize": 1028
+						"Size": 816
 					}
 				]
 			}

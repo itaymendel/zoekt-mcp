@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { clipLine } from "../src/clip.js";
 import { DEFAULT_OUTPUT_CHARS, formatSearch } from "../src/search-format.js";
-import { executeSearch, type SearchInput, searchSchema } from "../src/tools/search.js";
+import { searchTool } from "../src/tools/search.js";
 import { SearchResultSchema } from "../src/zoekt/types.js";
 import { expectGolden } from "./helpers/golden.js";
 import { testDeps } from "./helpers/test-deps.js";
@@ -308,12 +308,15 @@ describe("output cap", () => {
 	});
 });
 
-describe("executeSearch", () => {
-	const run = (routes: Parameters<typeof mockZoektFetch>[0], input: Partial<SearchInput> = {}) => {
+describe("searchTool", () => {
+	const run = (
+		routes: Parameters<typeof mockZoektFetch>[0],
+		input: Record<string, unknown> = {},
+	) => {
 		const fetch = mockZoektFetch(routes);
 		const { client } = testDeps(fetch);
-		const parsed = searchSchema.parse({ query: "q", ...input });
-		const result = executeSearch(client, parsed, { signal: new AbortController().signal });
+		const parsed = searchTool.inputSchema.parse({ query: "q", ...input });
+		const result = searchTool.execute(client, parsed, { signal: new AbortController().signal });
 		return { fetch, result };
 	};
 

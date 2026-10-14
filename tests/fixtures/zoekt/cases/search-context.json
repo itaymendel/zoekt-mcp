@@ -13,46 +13,16 @@
 		"contentType": "application/json",
 		"body": {
 			"result": {
-				"Last": {
-					"Query": "needle",
-					"Num": 50,
-					"Ctx": 1,
-					"AutoFocus": true,
-					"Debug": false
-				},
-				"QueryStr": "needle",
-				"Query": "substr:\"needle\"",
 				"Stats": {
-					"ContentBytesLoaded": 64,
-					"IndexBytesLoaded": 10,
-					"Crashes": 0,
-					"Duration": 0,
 					"FileCount": 1,
-					"ShardFilesConsidered": 0,
-					"FilesConsidered": 1,
-					"FilesLoaded": 1,
-					"FilesSkipped": 0,
-					"FilesSkippedDueToCancellation": 0,
-					"ShardsScanned": 1,
-					"ShardsSkipped": 0,
-					"ShardsSkippedFilter": 2,
 					"MatchCount": 3,
-					"NgramMatches": 3,
-					"NgramLookups": 112,
-					"Wait": 0,
-					"MatchTreeConstruction": 0,
-					"MatchTreeSearch": 0,
-					"RegexpsConsidered": 0,
-					"FlushReason": 0
+					"FilesSkipped": 0,
+					"ShardsSkipped": 0
 				},
-				"Duration": 0,
 				"FileMatches": [
 					{
 						"FileName": "docs/notes.txt",
 						"Repo": "example.test/alpha",
-						"ResultID": "example.test/alpha:docs/notes.txt",
-						"Language": "Text",
-						"DuplicateID": "",
 						"Branches": [
 							"main",
 							"main-old",
@@ -60,8 +30,6 @@
 						],
 						"Matches": [
 							{
-								"URL": "print?b=main&f=docs%2Fnotes.txt&q=needle&r=example.test%2Falpha#l2",
-								"FileName": "docs/notes.txt",
 								"LineNum": 2,
 								"Fragments": [
 									{
@@ -74,8 +42,6 @@
 								"After": "third line\n"
 							},
 							{
-								"URL": "print?b=main&f=docs%2Fnotes.txt&q=needle&r=example.test%2Falpha#l4",
-								"FileName": "docs/notes.txt",
 								"LineNum": 4,
 								"Fragments": [
 									{
@@ -88,8 +54,6 @@
 								"After": "needle three\n"
 							},
 							{
-								"URL": "print?b=main&f=docs%2Fnotes.txt&q=needle&r=example.test%2Falpha#l5",
-								"FileName": "docs/notes.txt",
 								"LineNum": 5,
 								"Fragments": [
 									{
@@ -100,8 +64,7 @@
 								],
 								"Before": "needle two\n"
 							}
-						],
-						"URL": "print?b=main&f=docs%2Fnotes.txt&q=needle&r=example.test%2Falpha"
+						]
 					}
 				]
 			}
