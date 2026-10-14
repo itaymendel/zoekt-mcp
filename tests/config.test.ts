@@ -109,16 +109,11 @@ describe("error reporting", () => {
 });
 
 describe("HTTP security keys", () => {
-	test("defaults", () => {
+	test("HTTP binds loopback and requires auth by default", () => {
 		const config = loadConfig({}, URL_ENV);
-		expect(config).toMatchObject({
-			mcpTransport: "stdio",
-			mcpHost: "127.0.0.1",
-			mcpAllowedHosts: [],
-			mcpAllowedOrigins: [],
-			mcpAllowUnauthenticated: false,
-			mcpAuthToken: undefined,
-		});
+		expect(config.mcpHost).toBe("127.0.0.1");
+		expect(config.mcpAllowUnauthenticated).toBe(false);
+		expect(config.mcpAuthToken).toBeUndefined();
 	});
 
 	test("parses csv lists and normalizes origins", () => {

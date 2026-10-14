@@ -16,7 +16,6 @@
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "fixtures:capture": "bun scripts/capture-zoekt-fixtures.ts",
-    "smoke": "node scripts/smoke-stdio.mjs",
     "check:package": "node scripts/check-package.mjs"
   },
   "devDependencies": {

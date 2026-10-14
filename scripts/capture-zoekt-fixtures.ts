@@ -60,7 +60,6 @@ const CASES: CaseDef[] = [
 		path: "/print",
 		query: { r: DELTA_REPO, f: "bin.dat", format: "raw" },
 	},
-	{ name: "readyz-ok", path: "/readyz", query: {} },
 ];
 
 /** Timing and index-time values vary per run; everything else is kept verbatim. */

@@ -12,7 +12,6 @@
 		"print-ok.json": "e03482c941555cbb292f4c337e75bc6e8a363b1846be8790c7d666cb31f692bc",
 		"print-not-found.json": "ea0ad071048a8789bfe365f12b20e0c43fbd7451489046c54e8a5607a88b62a9",
 		"print-ambiguous.json": "a57120f7a124e6b03bf813f41903e8c55ce0ff6e4576f766842c8ed41b2793e5",
-		"print-not-indexed-binary.json": "4d92fea6b77ee1ba730e6016b4c52450c16ca60863212c1d2800f71dd38042db",
-		"readyz-ok.json": "644503777e78aea451b834cc5a7ab2e606ec6f20fd5cb946bf6972d63034acc8"
+		"print-not-indexed-binary.json": "4d92fea6b77ee1ba730e6016b4c52450c16ca60863212c1d2800f71dd38042db"
 	}
 }

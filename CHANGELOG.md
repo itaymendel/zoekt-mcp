@@ -55,7 +55,7 @@ First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@nex
 - `--help` is shorter (21 lines) and lists the environment variables that have no flag.
 - Migrated to MCP TypeScript SDK v2; stdio is served via `serveStdio` and HTTP via `createMcpHandler` (both speak 2025-11-25 and 2026-07-28).
 - The startup log redacts credentials in `ZOEKT_URL`.
-- Internal: real Zoekt fixtures for the tests; CI tests the built `dist/` on Node 22 and 24 with stdio and HTTP smoke tests and a package check.
+- Internal: real Zoekt fixtures for the tests; CI installs the packed tarball on Node 22 and 24 and checks it starts over stdio and HTTP.
 
 ### Fixed
 

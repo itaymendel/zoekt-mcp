@@ -164,13 +164,11 @@ ZOEKT_URL=http://localhost:6070 bun run dev
 bun run lint && bun run typecheck && bun test
 ```
 
-To check the built bundle the way `npx` users run it, and the packed tarball (file list, install footprint, `--version`, stdio smoke):
+To check the packed tarball the way `npx` users run it (exact file list, zero runtime dependencies, the installed bin lists the three tools over stdio and answers `/healthz` over HTTP):
 
 ```bash
 bun run build
-bun run smoke -- --entry dist/index.js
-node scripts/smoke-http.mjs --entry dist/index.js
-bun run check:package
+node scripts/check-package.mjs
 ```
 
 Tests run against real Zoekt responses captured in `tests/fixtures/zoekt`. Docker is only needed to refresh them:
