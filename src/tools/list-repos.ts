@@ -3,7 +3,6 @@ import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import { formatRepoList } from "../utils.js";
 import type { ZoektClient } from "../zoekt/client.js";
 import { repoListQuery } from "../zoekt/query.js";
-import type { RepoList, RepoListWire } from "../zoekt/types.js";
 
 /** Zoekt has no offset, so a page is fetched as the first `offset + limit` repos and sliced. */
 const MAX_WINDOW = 5000;
@@ -44,30 +43,6 @@ Use the exact names as \`repo\` in read_file and as \`r:"^name$"\` in search.
 - \`{ "filter": "^github\\\\.com/myorg/" }\`
 - \`{ "limit": 50, "offset": 50 }\``;
 
-export function normalizeRepoList(
-	wire: RepoListWire,
-	{ filter, offset }: { filter?: string; offset: number },
-): RepoList {
-	const page = wire.Repos.slice(offset);
-	const total = wire.Stats?.Repos || wire.Repos.length;
-	const end = offset + page.length;
-	const truncated = end < total;
-	return {
-		filter,
-		total,
-		offset,
-		truncated,
-		nextOffset: truncated ? end : undefined,
-		repos: page.map((r) => ({
-			name: r.Name,
-			branches: r.Branches.map((b) => ({ name: b.Name, sha: b.Version })),
-			files: r.Files,
-			sizeBytes: r.Size,
-			indexedAt: r.IndexTime,
-		})),
-	};
-}
-
 export async function executeListRepos(
 	client: ZoektClient,
 	input: ListReposInput,
@@ -82,6 +57,5 @@ export async function executeListRepos(
 	const wire = await client.listRepos(repoListQuery(filter), offset + limit, {
 		signal: ctx.signal,
 	});
-	const data = normalizeRepoList(wire, { filter, offset });
-	return formatRepoList(data);
+	return formatRepoList(wire, { filter, offset });
 }
