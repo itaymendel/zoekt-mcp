@@ -8,7 +8,7 @@ export const DEFAULT_OUTPUT_CHARS = 20_000;
 const FOOTER_RULE = "---";
 const BLOCK_SEPARATOR = "\n\n";
 
-export interface SearchFormatOptions {
+interface SearchFormatOptions {
 	query: string;
 	/** Context lines to keep on each side of a match (Zoekt already limits them via `ctx`). */
 	contextLines: number;

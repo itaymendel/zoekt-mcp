@@ -7,47 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Removed
+### Breaking
 
-- Unused internals: unread Zoekt wire fields, the internal `data` model on tool results and unused type exports. No behavior change.
+- **CORS is removed.** The server sends no `Access-Control-*` headers and answers no preflight; a request with a foreign `Origin` gets 403, so browser-based clients are unsupported. `MCP_ALLOWED_ORIGINS` is removed (only localhost origins are accepted).
+- **`--timeout` / `ZOEKT_TIMEOUT_MS` are removed.** The Zoekt request timeout is a fixed 30 seconds.
+- **`search` no longer takes `maxMatchesPerFile`.** Every matching line of a shown file is printed.
+
+### Changed
+
+- The request body cap (1 MiB) is enforced by the MCP SDK only: an oversized `Content-Length` gets a 4xx response.
+- `search` output has a single 20,000-character cap (the first file is always shown) and a `[output truncated]` marker when it cuts; the truncation footer is one line, `Showing N of M files; narrow with r:/f:/lang:` ("at least M" only when Zoekt sent no stats).
+- `read_file` footers are reduced to four: empty file, past the end, `Truncated: showing lines X-Y of N. Continue with startLine=Z.` and `End of file.`. The 40,000-character cut uses the same `Truncated` footer ("of at least N" when the 8 MiB fetch cap cut the file). The clamped-range note and the fetch-limit messages are gone, and the ambiguous-branch error no longer carries the known-limitation text.
+- `read_file` "not indexed" errors quote Zoekt's own reason ("contains binary content", "exceeds the maximum size limit"); an HTML response from either Zoekt endpoint gets one message. Messages for Zoekt's 418 responses are unchanged.
+- `list_repos` output is unchanged.
 
 ## [1.0.0-alpha.0] - 2026-10-13
 
-First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@next`); `latest` stays at 0.1.0. See "Migrating from 0.1.x" in the README.
+First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@next`); `latest` stays at 0.1.0. Migrating from 0.1.x: see the Breaking notes below.
 
 ### Breaking
 
-- **`file_content` is replaced by `read_file`** (no alias). Parameters are renamed (`repository` -> `repo`, `filePath` -> `path`) and `startLine` / `endLine` are new. Output is numbered (`# <repo>`, `## <path>  (N lines)`, `N:text` rows, then `End of file.` or `Truncated: ... Continue with startLine=K.`); a call returns 500 lines by default (2000 at most, wider ranges are clamped with a note), at most 40,000 characters, and lines over 2000 characters are clipped. At most 8 MiB of a file is read (the stream is cancelled at the cap). A named `branch` must be an indexed branch (checked first, listing the indexed branches otherwise); `branch: "HEAD"` reads the default branch. Zoekt matches `branch` as a case-sensitive substring, so `main` can also match `main-old`; when that makes a file ambiguous the error lists the indexed branches. Missing files and repositories, several differing versions across branches (`Pass branch.`), and files Zoekt did not index as binary or too large (`NOT-INDEXED`) get clear errors instead of being returned as content.
-
-  | Before | After |
-  | --- | --- |
-  | `file_content` | `read_file` |
-  | `{"repository":"o/r","filePath":"a.ts"}` | `{"repo":"o/r","path":"a.ts"}` |
-  | `{"repository":"o/r","filePath":"a.ts","branch":"dev"}` | `{"repo":"o/r","path":"a.ts","branch":"dev"}` |
-  | whole file, unnumbered | `{"repo":"o/r","path":"a.ts","startLine":501,"endLine":700}` |
-- **`search` output is rewritten.** Results are grouped as `# <repo>` then `## <path>` (was `## <repo>/<path>`); rows are `N:text` for matches and `N-text` for context (was `> N: text`); `--` separates non-adjacent groups; indentation is kept and a line with several matches prints once instead of as several garbled rows. `Language:`, `Branches: HEAD` and the `Stats:` line are removed; branches appear only when they differ between files, and the footer after `---` gives file and match totals or says what was truncated. Migration: parse rows with `^(\d+)([:-])`; pass `# repo` and `## path` as `repo` and `path` to `read_file`.
-- **`search` parameter `limit` is replaced by `maxFiles`** (1-100, default 20; `limit` was default 30). New `maxMatchesPerFile` (1-50, default 5); `contextLines` now defaults to 2 (was 3). `limit` is no longer a parameter; unknown keys are ignored. `query` must not be empty.
-- **`list_repos` is reworked.** `filter` is an unanchored, case-insensitive regex on the repository name (prefix with `(?-i)` for case-sensitive); new `limit` (1-200, default 50) and `offset` parameters; output is one line per repository (`name  branch@sha7, ...  N files  size  indexed date`) sorted by name, with a paging footer.
-- **HTTP is now stateless Streamable HTTP at `POST /mcp`.** `GET /sse` and `POST /messages` are removed (410 Gone, with a hint to use `/mcp`); `/health` and `/` are removed, use `/healthz`; the CORS wildcard is removed. SSE-only clients need a bridge (e.g. `mcp-remote`) or stdio.
-- **The transport is never auto-detected.** The default is stdio unless `--transport http` / `MCP_TRANSPORT=http`. If you relied on a TTY selecting HTTP, add `--transport http`.
-- **The default bind address is `127.0.0.1`** (was `0.0.0.0`). Containers must set `MCP_HOST=0.0.0.0` and `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` (or `MCP_ALLOW_UNAUTHENTICATED=true`); a non-loopback bind without a token refuses to start (exit 2).
-- **`Host` and `Origin` validation on `/mcp` is always on** (403); hostnames are matched without ports. Request bodies over 1 MiB get 413. `Access-Control-Allow-Origin` is only sent for origins listed in `MCP_ALLOWED_ORIGINS`.
+- **`file_content` is replaced by `read_file`** (no alias): `repository` -> `repo`, `filePath` -> `path`, new `startLine` / `endLine`. Output is numbered (`# <repo>`, `## <path>  (N lines)`, `N:text` rows and a footer); 500 lines by default, 2000 at most, 40,000 characters at most, lines over 2000 characters are clipped. A named `branch` must be an indexed branch (`HEAD` is the default branch). Missing files and repositories, ambiguous branches and files Zoekt did not index (binary or too large) get clear errors.
+- **`search` output is rewritten.** Results are grouped as `# <repo>` then `## <path>`; rows are `N:text` for matches and `N-text` for context, with `--` between non-adjacent groups. `Language:`, `Branches: HEAD` and `Stats:` are removed; branches appear only when they differ between files, and the footer after `---` gives totals or says what was truncated. Parse rows with `^(\d+)([:-])`.
+- **`search` parameter `limit` is replaced by `maxFiles`** (1-100, default 20; `limit` was default 30). `contextLines` now defaults to 2 (was 3); unknown keys are ignored and `query` must not be empty.
+- **`list_repos` is reworked.** `filter` is an unanchored, case-insensitive regex on the repository name; new `limit` (1-200, default 50) and `offset`; one line per repository, sorted by name, with a paging footer.
+- **HTTP is stateless Streamable HTTP at `POST /mcp`.** `GET /sse` and `POST /messages` return 410 Gone, `/health` and `/` are removed (use `/healthz`) and the CORS wildcard is removed. SSE-only clients need a bridge such as `mcp-remote`, or stdio.
+- **Safer defaults.** The transport is never auto-detected (stdio unless `--transport http` / `MCP_TRANSPORT=http`); HTTP binds to `127.0.0.1` (was `0.0.0.0`) and a non-loopback bind needs `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` or `MCP_ALLOW_UNAUTHENTICATED=true`, otherwise it exits 2; `Host` and `Origin` validation on `/mcp` is always on (403); request bodies are capped at 1 MiB.
 - **`ZOEKT_URL` / `--url` must be an `http://` or `https://` URL.**
-- **Node.js >= 22 is required** (was >= 18).
-- **Minimum Zoekt version:** `read_file` uses `/print?format=raw`, so `zoekt-webserver` must be from 2025-01-30 or later.
-- **Bundled dependencies:** the package has zero runtime dependencies (it was `@modelcontextprotocol/sdk`, `@anthropic-ai/sdk`, `pino` and `zod`); `main` is removed, the package is CLI-only.
+- **Requirements and packaging.** Node.js >= 22 (was >= 18) and a Zoekt webserver from 2025-01-30 or later (`read_file` uses `/print?format=raw`). The package has zero runtime dependencies and is CLI-only (`main` is removed).
 
 ### Added
 
 - Server `instructions` and title, tool titles and read-only annotations (`readOnlyHint`, `idempotentHint`, `destructiveHint: false`, `openWorldHint: false`) on `search`, `list_repos` and `read_file`.
 - `GET /healthz` (process liveness; never touches Zoekt).
-- `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS`, `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` and `MCP_ALLOW_UNAUTHENTICATED` for the HTTP transport.
+- `MCP_ALLOWED_HOSTS`, `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` and `MCP_ALLOW_UNAUTHENTICATED` for the HTTP transport.
 - Exit code 2 for usage and configuration errors, with a readable message on stderr (was a JSON log line and exit 1). Empty or whitespace-only environment variables are treated as unset.
 - Real context lines in `search` (`contextLines`, default 2) and `search` output bounded to about 20,000 characters (the first file is always shown), with a footer that reports exactly how many files were left out and why ("showing 3 of 8 files", "of at least N" when Zoekt skipped files or shards).
 - Cancellation: a client abort now cancels the in-flight Zoekt request.
 - Network errors name the cause: `Cannot reach Zoekt at <URL> (ECONNREFUSED)`, `Zoekt request timed out after <ms>ms`. Tool errors include Zoekt's error text (query parse errors, HTTP failures, unexpected responses); long bodies are truncated at 500 characters.
 - Graceful shutdown: SIGINT/SIGTERM stop accepting connections, wait up to 10 seconds, then drop what is left and exit 0; a second signal exits 1 immediately.
-- README rewrite: quick start, client setup, query cheat sheet, security, configuration, migration and troubleshooting, and the manual release runbook.
+- README rewrite: quick start, client setup, security, configuration, troubleshooting and the manual release runbook.
 
 ### Changed
 
@@ -55,7 +54,6 @@ First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@nex
 - `--help` is shorter (21 lines) and lists the environment variables that have no flag.
 - Migrated to MCP TypeScript SDK v2; stdio is served via `serveStdio` and HTTP via `createMcpHandler` (both speak 2025-11-25 and 2026-07-28).
 - The startup log redacts credentials in `ZOEKT_URL`.
-- Internal: real Zoekt fixtures for the tests; CI installs the packed tarball on Node 22 and 24 and checks it starts over stdio and HTTP.
 
 ### Fixed
 

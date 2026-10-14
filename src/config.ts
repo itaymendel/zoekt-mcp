@@ -97,7 +97,7 @@ const SOURCES: Record<RawKey, { flag?: string; env: string }> = {
 
 export type LogLevel = z.infer<typeof LogLevelSchema>;
 export type Transport = z.infer<typeof TransportSchema>;
-export type Config = z.output<typeof ConfigSchema> & {
+type Config = z.output<typeof ConfigSchema> & {
 	/** Resolved from MCP_AUTH_TOKEN or MCP_AUTH_TOKEN_FILE; undefined when auth is off. */
 	mcpAuthToken?: string;
 };

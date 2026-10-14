@@ -10,7 +10,7 @@ import { createMcpServer } from "./server.js";
 import { getErrorMessage, redactUrl } from "./utils.js";
 import { ZoektClient } from "./zoekt/client.js";
 
-const ZOEKT_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function printHelp(): void {
 	console.log(`zoekt-mcp - MCP server for Zoekt code search
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
 		// Built once; the factory below runs per request (HTTP) or per connection (stdio).
 		const client = new ZoektClient({
 			baseUrl: config.zoektUrl,
-			timeoutMs: ZOEKT_TIMEOUT_MS,
+			timeoutMs: REQUEST_TIMEOUT_MS,
 			logger,
 		});
 		const createServer = () => createMcpServer({ client, logger });

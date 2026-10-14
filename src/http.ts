@@ -29,7 +29,7 @@ export interface HttpServerOptions {
 	authToken?: string;
 }
 
-export interface HttpServer {
+interface HttpServer {
 	/** @internal test seam: the underlying node:http server, so tests can observe its events. */
 	readonly server: Server;
 	/** Resolves the actually bound address (supports port 0). */

@@ -12,7 +12,7 @@ const MAX_LINE_LENGTH = 2000;
 /** `print` stops reading (and cancels the stream) after this many bytes. */
 export const MAX_FETCH_BYTES = 8 * 1024 * 1024;
 
-export interface FileRange {
+interface FileRange {
 	startLine: number;
 	/** Last line wanted, after defaulting (`startLine + 499`) and clamping to `MAX_WINDOW_LINES`. */
 	endLine: number;
