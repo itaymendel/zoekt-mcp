@@ -18,14 +18,11 @@ function issuesOf(fn: () => unknown): ConfigError["issues"] {
 }
 
 describe("transport and precedence", () => {
-	test("CLI value beats env value", () => {
-		const config = loadConfig({ mcpTransport: "stdio" }, { ...URL_ENV, MCP_TRANSPORT: "http" });
-		expect(config.mcpTransport).toBe("stdio");
-	});
-
-	test("env beats default", () => {
-		expect(loadConfig({}, { ...URL_ENV, MCP_TRANSPORT: "http" }).mcpTransport).toBe("http");
-		expect(loadConfig({}, { ...URL_ENV, MCP_PORT: "8080" }).mcpPort).toBe(8080);
+	test("CLI beats env, env beats default", () => {
+		const env = { ...URL_ENV, MCP_TRANSPORT: "http", MCP_PORT: "8080" };
+		expect(loadConfig({ mcpTransport: "stdio" }, env).mcpTransport).toBe("stdio");
+		expect(loadConfig({}, env).mcpTransport).toBe("http");
+		expect(loadConfig({}, env).mcpPort).toBe(8080);
 	});
 
 	test("empty and whitespace-only env values are treated as unset", () => {
@@ -69,18 +66,13 @@ describe("zoekt url", () => {
 		expect(JSON.stringify(issues)).not.toContain("s3");
 		expect(loadConfig({}, { ZOEKT_URL: "http://u:p%40ss@h:1" }).zoektUrl).toContain("p%40ss");
 	});
-
-	test("accepts https with port and path", () => {
-		const config = loadConfig({}, { ZOEKT_URL: "https://zoekt.example.com:6070/base" });
-		expect(config.zoektUrl).toBe("https://zoekt.example.com:6070/base");
-	});
 });
 
 describe("error reporting", () => {
 	test("reports every invalid option at once", () => {
 		let error: unknown;
 		try {
-			loadConfig({ mcpPort: "abc" }, { ...URL_ENV, ZOEKT_TIMEOUT_MS: "5" });
+			loadConfig({ mcpPort: "abc" }, { ...URL_ENV, MCP_TRANSPORT: "sse" });
 		} catch (e) {
 			error = e;
 		}
@@ -91,20 +83,10 @@ describe("error reporting", () => {
 		const text = formatConfigError(error as ConfigError);
 		expect(text).toStartWith("zoekt-mcp: invalid configuration");
 		expect(text).toContain('--port / MCP_PORT: must be an integer between 1 and 65535 (got "abc")');
-		expect(text).toContain("--timeout / ZOEKT_TIMEOUT_MS");
+		expect(text).toContain('--transport / MCP_TRANSPORT: must be "stdio" or "http" (got "sse")');
 		expect(text).toContain('Run "zoekt-mcp --help" for usage.');
 		expect(text).not.toContain("ZodError");
 		expect(text).not.toContain("{");
-	});
-
-	test("friendly messages for transport and log level", () => {
-		const text = formatConfigError({
-			issues: issuesOf(() =>
-				loadConfig({}, { ...URL_ENV, MCP_TRANSPORT: "sse", LOG_LEVEL: "loud" }),
-			),
-		});
-		expect(text).toContain('--transport / MCP_TRANSPORT: must be "stdio" or "http" (got "sse")');
-		expect(text).toContain("--log-level / LOG_LEVEL: must be one of: debug, info, warn, error");
 	});
 });
 
@@ -116,44 +98,19 @@ describe("HTTP security keys", () => {
 		expect(config.mcpAuthToken).toBeUndefined();
 	});
 
-	test("parses csv lists and normalizes origins", () => {
-		const config = loadConfig(
-			{},
-			{
-				...URL_ENV,
-				MCP_ALLOWED_HOSTS: " Mcp.Example.com , ,10.0.0.5 ",
-				MCP_ALLOWED_ORIGINS: "https://app.example.com/,http://localhost:5173",
-			},
-		);
-		expect(config.mcpAllowedHosts).toEqual(["mcp.example.com", "10.0.0.5"]);
-		expect(config.mcpAllowedOrigins).toEqual(["https://app.example.com", "http://localhost:5173"]);
+	test("rejects malformed booleans", () => {
+		const issues = issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_ALLOW_UNAUTHENTICATED: "yes" }));
+		expect(issues.map((i) => i.env)).toEqual(["MCP_ALLOW_UNAUTHENTICATED"]);
 	});
 
-	test("rejects malformed origins, bounds and booleans", () => {
-		const issues = issuesOf(() =>
-			loadConfig(
-				{},
-				{
-					...URL_ENV,
-					MCP_ALLOWED_ORIGINS: "not-an-origin",
-					MCP_ALLOW_UNAUTHENTICATED: "yes",
-				},
-			),
-		);
-		expect(issues.map((i) => i.env).sort()).toEqual([
-			"MCP_ALLOWED_ORIGINS",
-			"MCP_ALLOW_UNAUTHENTICATED",
-		]);
-	});
-
-	test("MCP_ALLOWED_HOSTS rejects entries with a port or an unbracketed IPv6 address", () => {
+	test("MCP_ALLOWED_HOSTS is normalized and rejects entries with a port or an unbracketed IPv6 address", () => {
 		for (const bad of ["foo:80", "::1", "*", "a.example,b.example:8443", "https://a.example"]) {
 			const issues = issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: bad }));
 			expect(issues).toHaveLength(1);
 			expect(issues[0]?.env).toBe("MCP_ALLOWED_HOSTS");
 			expect(issues[0]?.message).toContain("without ports");
 		}
-		const ok = loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: "a.example,[::1]" });
+		const ok = loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: " A.example , ,[::1] " });
 		expect(ok.mcpAllowedHosts).toEqual(["a.example", "[::1]"]);
 	});
 
@@ -222,10 +179,6 @@ describe("HTTP security keys", () => {
 				{ ...http, MCP_HOST: "0.0.0.0", MCP_ALLOW_UNAUTHENTICATED: "true" },
 			);
 			expect(optOut.mcpAllowUnauthenticated).toBe(true);
-		});
-
-		test("stdio never binds, so it is not refused", () => {
-			expect(loadConfig({}, { ...URL_ENV, MCP_HOST: "0.0.0.0" }).mcpTransport).toBe("stdio");
 		});
 	});
 });

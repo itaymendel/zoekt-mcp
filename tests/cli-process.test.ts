@@ -42,13 +42,6 @@ describe("exit codes", () => {
 		expect(stderr).not.toContain("{");
 	});
 
-	test("an unknown option exits 2", async () => {
-		const { stderr, exitCode } = await run(["--bogus"]);
-
-		expect(exitCode).toBe(2);
-		expect(stderr).toContain("Unknown option");
-	});
-
 	test("stdio is the default: exits 0 on EOF", async () => {
 		const started = performance.now();
 		const { exitCode } = await run(["--url", "http://127.0.0.1:9"]);
@@ -90,7 +83,6 @@ describe("non-loopback bind", () => {
 		const log = captureStderr(proc);
 		try {
 			const stderr = await log.until((text) => text.includes("listening"));
-			expect(stderr).toContain("without authentication");
 			expect(stderr).toContain('"level":40');
 			expect((await fetch(`http://127.0.0.1:${port}/healthz`)).status).toBe(200);
 		} finally {

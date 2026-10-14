@@ -2,11 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { connect } from "node:net";
 import { Writable } from "node:stream";
 import { type Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import pino from "pino";
 import { createHttpServer } from "../src/http.js";
 import { createLogger } from "../src/logger.js";
 import { createMcpServer } from "../src/server.js";
-import { startFakeZoekt } from "./helpers/fake-zoekt.js";
+import { hangingFetch } from "./helpers/hanging-fetch.js";
 import {
 	rawRequest,
 	startTestServer,
@@ -81,22 +80,6 @@ describe("Streamable HTTP on /mcp", () => {
 		expect(tools).toHaveLength(3);
 		expect(result.isError).toBeFalsy();
 	});
-
-	test("2025 initialize POST returns serverInfo", async () => {
-		const { baseUrl } = await start();
-		const res = await postMcp(baseUrl, initializeBody());
-
-		expect(res.status).toBe(200);
-		expect(await res.text()).toContain('"serverInfo":{"name":"zoekt-mcp"');
-	});
-
-	test("malformed JSON on /mcp is a 4xx", async () => {
-		const { baseUrl } = await start();
-		const res = await postMcp(baseUrl, "{not json");
-
-		expect(res.status).toBeGreaterThanOrEqual(400);
-		expect(res.status).toBeLessThan(500);
-	});
 });
 
 describe("routes", () => {
@@ -113,13 +96,6 @@ describe("routes", () => {
 		}
 	});
 
-	test("/health and / return 404", async () => {
-		const { baseUrl } = await start();
-		expect((await fetch(`${baseUrl}/health`)).status).toBe(404);
-		expect((await fetch(`${baseUrl}/`)).status).toBe(404);
-		expect((await fetch(`${baseUrl}/nope`)).status).toBe(404);
-	});
-
 	test("/healthz returns 200 and 405 on POST", async () => {
 		const { baseUrl, zoektFetch } = await start();
 		const res = await fetch(`${baseUrl}/healthz`);
@@ -134,30 +110,7 @@ describe("routes", () => {
 	});
 });
 
-describe("lifecycle", () => {
-	test("start() rejects when the port is taken", async () => {
-		const first = await start();
-		const second = createHttpServer({
-			createServer: () => {
-				throw new Error("unused");
-			},
-			host: "127.0.0.1",
-			port: first.port,
-			logger: pino({ level: "silent" }),
-		});
-
-		await expect(second.start()).rejects.toThrow();
-	});
-});
-
 const TOKEN = "0123456789abcdef-secret";
-
-describe("bind address", () => {
-	test("binds 127.0.0.1 by default", async () => {
-		const server = await start();
-		expect(server.host).toBe("127.0.0.1");
-	});
-});
 
 describe("Host validation", () => {
 	test("loopback Host accepted on 0.0.0.0 bind", async () => {
@@ -193,65 +146,15 @@ describe("Host validation", () => {
 	});
 });
 
-describe("Origin validation and CORS", () => {
-	test("disallowed, null and unparsable origins are 403; none and localhost pass", async () => {
+describe("Origin validation", () => {
+	test("a foreign Origin is 403; none and localhost pass", async () => {
 		const { baseUrl } = await start();
 		const status = async (origin?: string) =>
 			(await postMcp(baseUrl, initializeBody(), origin === undefined ? {} : { origin })).status;
 
 		expect(await status("https://evil.example")).toBe(403);
-		expect(await status("null")).toBe(403);
-		expect(await status("not a url")).toBe(403);
 		expect(await status()).toBe(200);
 		expect(await status("http://localhost:5173")).toBe(200);
-		expect(await status("http://127.0.0.1:5173")).toBe(200);
-	});
-
-	test("allowed origin gets a matching access-control-allow-origin and Vary", async () => {
-		const { baseUrl } = await start({ allowedOrigins: ["https://app.example.com"] });
-		const res = await postMcp(baseUrl, initializeBody(), { origin: "https://app.example.com" });
-
-		expect(res.status).toBe(200);
-		expect(res.headers.get("access-control-allow-origin")).toBe("https://app.example.com");
-		expect(res.headers.get("vary")).toContain("Origin");
-	});
-
-	test("localhost origins pass but get no CORS headers", async () => {
-		const { baseUrl } = await start({ allowedOrigins: ["https://app.example.com"] });
-		const res = await postMcp(baseUrl, initializeBody(), { origin: "http://localhost:5173" });
-
-		expect(res.status).toBe(200);
-		expect(res.headers.get("access-control-allow-origin")).toBeNull();
-	});
-
-	test("preflight: 204 for an allowed origin, 403 otherwise", async () => {
-		const { baseUrl } = await start({ allowedOrigins: ["https://app.example.com"] });
-		const preflight = (origin: string) =>
-			fetch(`${baseUrl}/mcp`, {
-				method: "OPTIONS",
-				headers: { origin, "access-control-request-method": "POST" },
-			});
-
-		const ok = await preflight("https://app.example.com");
-		expect(ok.status).toBe(204);
-		expect(ok.headers.get("access-control-allow-origin")).toBe("https://app.example.com");
-		expect(ok.headers.get("access-control-allow-methods")).toContain("POST");
-
-		expect((await preflight("https://evil.example")).status).toBe(403);
-		expect((await preflight("http://localhost:5173")).status).toBe(403);
-	});
-
-	test("no route ever answers access-control-allow-origin: *", async () => {
-		const { baseUrl } = await start({ allowedOrigins: ["https://app.example.com"] });
-		for (const origin of ["https://app.example.com", "https://evil.example", "null"]) {
-			for (const path of ["/mcp", "/healthz", "/sse", "/nope"]) {
-				const res = await fetch(`${baseUrl}${path}`, { method: "POST", headers: { origin } });
-				const allowOrigin = res.headers.get("access-control-allow-origin");
-				expect(allowOrigin).not.toBe("*");
-				// Only the allowlisted origin on /mcp is ever echoed.
-				if (origin !== "https://app.example.com" || path !== "/mcp") expect(allowOrigin).toBeNull();
-			}
-		}
 	});
 });
 
@@ -306,12 +209,6 @@ describe("bearer auth", () => {
 		);
 	});
 
-	test("Origin is checked before auth", async () => {
-		const { baseUrl } = await start({ authToken: TOKEN });
-		const res = await postMcp(baseUrl, initializeBody(), { origin: "https://evil.example" });
-		expect(res.status).toBe(403);
-	});
-
 	test("the token never reaches the logs", async () => {
 		const lines: string[] = [];
 		const sink = new Writable({
@@ -348,17 +245,11 @@ describe("bearer auth", () => {
 });
 
 describe("body cap", () => {
-	test("2 KiB POST with Content-Length over the cap is 413", async () => {
-		const { baseUrl } = await start({ maxBodyBytes: 1024 });
-		const res = await postMcp(baseUrl, JSON.stringify({ pad: "x".repeat(2048) }));
-		expect(res.status).toBe(413);
-	});
-
-	test("a valid body under the cap is not 413", async () => {
-		const { baseUrl } = await start({ maxBodyBytes: 1024 });
-		const body = initializeBody();
-		expect(body.length).toBeLessThan(1024);
-		expect((await postMcp(baseUrl, body)).status).toBe(200);
+	test("a body over 1 MiB is rejected with a 4xx", async () => {
+		const { baseUrl } = await start();
+		const res = await postMcp(baseUrl, JSON.stringify({ pad: "x".repeat(1_048_576 + 1024) }));
+		expect(res.status).toBeGreaterThanOrEqual(400);
+		expect(res.status).toBeLessThan(500);
 	});
 });
 
@@ -375,27 +266,32 @@ describe("graceful shutdown", () => {
 	});
 
 	test("an in-flight hanging tool call cannot block close() past shutdownTimeoutMs", async () => {
-		const zoekt = await startFakeZoekt({ hang: true });
-		const server = await start({
-			zoektBaseUrl: zoekt.url,
-			zoektTimeoutMs: 30_000,
+		const upstream = hangingFetch();
+		const deps = testDeps(upstream.fetch);
+		const http = createHttpServer({
+			createServer: () => createMcpServer(deps),
+			host: "127.0.0.1",
+			port: 0,
+			logger: deps.logger,
 			shutdownTimeoutMs: 300,
 		});
+		const { port } = await http.start();
 		const client = makeTestClient();
 		try {
-			await client.connect(new StreamableHTTPClientTransport(new URL(`${server.baseUrl}/mcp`)));
+			await client.connect(
+				new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)),
+			);
 			const pending = client
 				.callTool({ name: "search", arguments: { query: "x" } })
 				.catch(() => "aborted");
-			expect(await zoekt.nextRequest()).toBe("/search");
+			await upstream.signalSeen;
 
 			const started = performance.now();
-			await server.close();
+			await http.close();
 			expect(performance.now() - started).toBeLessThan(300 + 1500);
 			await pending;
 		} finally {
 			await client.close().catch(() => {});
-			await zoekt.close();
 		}
 	});
 

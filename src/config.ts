@@ -47,21 +47,6 @@ const HostsSchema = csvList(
 		.transform((host) => host.toLowerCase()),
 );
 
-const ORIGINS_MESSAGE =
-	"must be a comma-separated list of http(s) origins, e.g. https://app.example.com";
-const OriginsSchema = csvList(
-	z.string().transform((value, ctx) => {
-		try {
-			const url = new URL(value);
-			if (url.protocol === "http:" || url.protocol === "https:") return url.origin;
-		} catch {
-			// falls through to the issue below
-		}
-		ctx.addIssue({ code: "custom", message: ORIGINS_MESSAGE });
-		return z.NEVER;
-	}),
-);
-
 /** Userinfo is percent-decoded into a Basic auth header, so a malformed `%` sequence is a config error. */
 function hasValidCredentialEncoding(value: string): boolean {
 	try {
@@ -90,13 +75,7 @@ const ConfigSchema = z.object({
 	mcpHost: z.string().default("127.0.0.1"),
 	mcpTransport: TransportSchema.default("stdio"),
 	logLevel: LogLevelSchema.default("info"),
-	zoektTimeoutMs: intString(
-		1000,
-		300000,
-		"must be an integer between 1000 and 300000 (milliseconds)",
-	).default(30000),
 	mcpAllowedHosts: HostsSchema.default([]),
-	mcpAllowedOrigins: OriginsSchema.default([]),
 	mcpAllowUnauthenticated: boolString('must be "true" or "false"').default(false),
 });
 
@@ -112,18 +91,9 @@ const SOURCES: Record<RawKey, { flag?: string; env: string }> = {
 	mcpPort: { flag: "--port", env: "MCP_PORT" },
 	mcpHost: { flag: "--host", env: "MCP_HOST" },
 	logLevel: { flag: "--log-level", env: "LOG_LEVEL" },
-	zoektTimeoutMs: { flag: "--timeout", env: "ZOEKT_TIMEOUT_MS" },
 	mcpAllowedHosts: { env: "MCP_ALLOWED_HOSTS" },
-	mcpAllowedOrigins: { env: "MCP_ALLOWED_ORIGINS" },
 	mcpAllowUnauthenticated: { env: "MCP_ALLOW_UNAUTHENTICATED" },
 };
-
-/** Every environment variable this server reads (the README config table is tested against it). */
-export const ENV_KEYS: readonly string[] = [
-	...Object.values(SOURCES).map((source) => source.env),
-	"MCP_AUTH_TOKEN",
-	"MCP_AUTH_TOKEN_FILE",
-];
 
 export type LogLevel = z.infer<typeof LogLevelSchema>;
 export type Transport = z.infer<typeof TransportSchema>;
@@ -132,16 +102,15 @@ export type Config = z.output<typeof ConfigSchema> & {
 	mcpAuthToken?: string;
 };
 
-export interface CliArgs {
+interface CliArgs {
 	zoektUrl?: string;
 	mcpTransport?: string;
 	mcpPort?: string;
 	mcpHost?: string;
 	logLevel?: string;
-	zoektTimeoutMs?: string;
 }
 
-export interface ConfigIssue {
+interface ConfigIssue {
 	flag?: string;
 	env: string;
 	message: string;
