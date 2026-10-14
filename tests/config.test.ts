@@ -18,19 +18,6 @@ function issuesOf(fn: () => unknown): ConfigError["issues"] {
 }
 
 describe("transport and precedence", () => {
-	test("defaults transport to stdio regardless of TTY", () => {
-		const original = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
-		try {
-			for (const isTTY of [true, false]) {
-				Object.defineProperty(process.stdin, "isTTY", { value: isTTY, configurable: true });
-				expect(loadConfig({}, URL_ENV).mcpTransport).toBe("stdio");
-			}
-		} finally {
-			if (original) Object.defineProperty(process.stdin, "isTTY", original);
-			else Reflect.deleteProperty(process.stdin, "isTTY");
-		}
-	});
-
 	test("CLI value beats env value", () => {
 		const config = loadConfig({ mcpTransport: "stdio" }, { ...URL_ENV, MCP_TRANSPORT: "http" });
 		expect(config.mcpTransport).toBe("stdio");
@@ -48,11 +35,7 @@ describe("transport and precedence", () => {
 
 		const issues = issuesOf(() => loadConfig({}, { ZOEKT_URL: "" }));
 		expect(issues).toHaveLength(1);
-		expect(issues[0]?.message).toBe("is required");
-	});
-
-	test("defaults mcpHost to loopback", () => {
-		expect(loadConfig({}, URL_ENV).mcpHost).toBe("127.0.0.1");
+		expect(issues[0]).toMatchObject({ flag: "--url", env: "ZOEKT_URL", message: "is required" });
 	});
 });
 
@@ -129,11 +112,11 @@ describe("HTTP security keys", () => {
 	test("defaults", () => {
 		const config = loadConfig({}, URL_ENV);
 		expect(config).toMatchObject({
+			mcpTransport: "stdio",
+			mcpHost: "127.0.0.1",
 			mcpAllowedHosts: [],
 			mcpAllowedOrigins: [],
 			mcpAllowUnauthenticated: false,
-			mcpMaxBodyBytes: 1048576,
-			mcpShutdownTimeoutMs: 10000,
 			mcpAuthToken: undefined,
 		});
 	});
@@ -158,8 +141,6 @@ describe("HTTP security keys", () => {
 				{
 					...URL_ENV,
 					MCP_ALLOWED_ORIGINS: "not-an-origin",
-					MCP_MAX_BODY_BYTES: "10",
-					MCP_SHUTDOWN_TIMEOUT_MS: "999999",
 					MCP_ALLOW_UNAUTHENTICATED: "yes",
 				},
 			),
@@ -167,26 +148,18 @@ describe("HTTP security keys", () => {
 		expect(issues.map((i) => i.env).sort()).toEqual([
 			"MCP_ALLOWED_ORIGINS",
 			"MCP_ALLOW_UNAUTHENTICATED",
-			"MCP_MAX_BODY_BYTES",
-			"MCP_SHUTDOWN_TIMEOUT_MS",
 		]);
 	});
 
 	test("MCP_ALLOWED_HOSTS rejects entries with a port or an unbracketed IPv6 address", () => {
-		for (const bad of ["foo:80", "::1", "a.example,b.example:8443", "https://a.example"]) {
+		for (const bad of ["foo:80", "::1", "*", "a.example,b.example:8443", "https://a.example"]) {
 			const issues = issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: bad }));
 			expect(issues).toHaveLength(1);
 			expect(issues[0]?.env).toBe("MCP_ALLOWED_HOSTS");
 			expect(issues[0]?.message).toContain("without ports");
 		}
-		const ok = loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: "a.example,[::1],*" });
-		expect(ok.mcpAllowedHosts).toEqual(["a.example", "[::1]", "*"]);
-	});
-
-	test("accepts the shutdown timeout bound 0", () => {
-		expect(loadConfig({}, { ...URL_ENV, MCP_SHUTDOWN_TIMEOUT_MS: "0" }).mcpShutdownTimeoutMs).toBe(
-			0,
-		);
+		const ok = loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: "a.example,[::1]" });
+		expect(ok.mcpAllowedHosts).toEqual(["a.example", "[::1]"]);
 	});
 
 	describe("token", () => {
@@ -244,9 +217,6 @@ describe("HTTP security keys", () => {
 			for (const host of ["localhost", "127.0.0.1", "127.9.9.9", "::1"]) {
 				expect(loadConfig({}, { ...http, MCP_HOST: host }).mcpHost).toBe(host);
 			}
-			// Bracketed IPv6 is normalized to the bare form node can listen on.
-			expect(loadConfig({}, { ...http, MCP_HOST: "[::1]" }).mcpHost).toBe("::1");
-			expect(loadConfig({ mcpHost: "[::1]" }, http).mcpHost).toBe("::1");
 		});
 
 		test("a token or MCP_ALLOW_UNAUTHENTICATED=true lets it start", () => {

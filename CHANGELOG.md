@@ -31,7 +31,7 @@ First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@nex
 - **HTTP is now stateless Streamable HTTP at `POST /mcp`.** `GET /sse` and `POST /messages` are removed (410 Gone, with a hint to use `/mcp`); `/health` and `/` are removed, use `/healthz`; the CORS wildcard is removed. SSE-only clients need a bridge (e.g. `mcp-remote`) or stdio.
 - **The transport is never auto-detected.** The default is stdio unless `--transport http` / `MCP_TRANSPORT=http`. If you relied on a TTY selecting HTTP, add `--transport http`.
 - **The default bind address is `127.0.0.1`** (was `0.0.0.0`). Containers must set `MCP_HOST=0.0.0.0` and `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` (or `MCP_ALLOW_UNAUTHENTICATED=true`); a non-loopback bind without a token refuses to start (exit 2).
-- **`Host` and `Origin` validation on `/mcp` is always on** (403); hostnames are matched without ports. Request bodies over 1 MiB get 413 (`MCP_MAX_BODY_BYTES`). `Access-Control-Allow-Origin` is only sent for origins listed in `MCP_ALLOWED_ORIGINS`.
+- **`Host` and `Origin` validation on `/mcp` is always on** (403); hostnames are matched without ports. Request bodies over 1 MiB get 413. `Access-Control-Allow-Origin` is only sent for origins listed in `MCP_ALLOWED_ORIGINS`.
 - **`ZOEKT_URL` / `--url` must be an `http://` or `https://` URL.**
 - **Node.js >= 22 is required** (was >= 18).
 - **Minimum Zoekt version:** `read_file` uses `/print?format=raw`, so `zoekt-webserver` must be from 2025-01-30 or later.
@@ -39,14 +39,14 @@ First 1.0 prerelease, published under the `next` dist-tag (`npx -y zoekt-mcp@nex
 
 ### Added
 
-- Server `instructions` and title, tool titles and read-only annotations (`readOnlyHint`, `idempotentHint`, `destructiveHint: false`, `openWorldHint: false`) on `search`, `list_repos` and `read_file`, and one-hour `tools/list` / `server/discover` cache hints for 2026-era clients (`private` when `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` is set, else `public`).
+- Server `instructions` and title, tool titles and read-only annotations (`readOnlyHint`, `idempotentHint`, `destructiveHint: false`, `openWorldHint: false`) on `search`, `list_repos` and `read_file`.
 - `GET /healthz` (process liveness; never touches Zoekt).
-- `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS`, `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE`, `MCP_ALLOW_UNAUTHENTICATED`, `MCP_MAX_BODY_BYTES` and `MCP_SHUTDOWN_TIMEOUT_MS` for the HTTP transport.
+- `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS`, `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` and `MCP_ALLOW_UNAUTHENTICATED` for the HTTP transport.
 - Exit code 2 for usage and configuration errors, with a readable message on stderr (was a JSON log line and exit 1). Empty or whitespace-only environment variables are treated as unset.
 - Real context lines in `search` (`contextLines`, default 2) and `search` output bounded to about 20,000 characters (the first file is always shown), with a footer that reports exactly how many files were left out and why ("showing 3 of 8 files", "of at least N" when Zoekt skipped files or shards).
 - Cancellation: a client abort now cancels the in-flight Zoekt request.
 - Network errors name the cause: `Cannot reach Zoekt at <URL> (ECONNREFUSED)`, `Zoekt request timed out after <ms>ms`. Tool errors include Zoekt's error text (query parse errors, HTTP failures, unexpected responses); long bodies are truncated at 500 characters.
-- Graceful shutdown: SIGINT/SIGTERM stop accepting connections, wait up to `MCP_SHUTDOWN_TIMEOUT_MS`, then drop what is left; exit 0 when clean, 1 when forced, and a second signal exits 1 immediately.
+- Graceful shutdown: SIGINT/SIGTERM stop accepting connections, wait up to 10 seconds, then drop what is left and exit 0; a second signal exits 1 immediately.
 - README rewrite: quick start, client setup, query cheat sheet, security, configuration, migration and troubleshooting, and the manual release runbook.
 
 ### Changed

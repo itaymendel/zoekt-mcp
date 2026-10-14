@@ -14,8 +14,8 @@ Options:
 
 Every option also has an environment variable (--url is ZOEKT_URL, and so on).
 HTTP security settings are environment-only: MCP_AUTH_TOKEN, MCP_AUTH_TOKEN_FILE,
-MCP_ALLOWED_HOSTS, MCP_ALLOWED_ORIGINS, MCP_ALLOW_UNAUTHENTICATED, MCP_MAX_BODY_BYTES
-and MCP_SHUTDOWN_TIMEOUT_MS. Exit code 2 means a usage or configuration error.
+MCP_ALLOWED_HOSTS, MCP_ALLOWED_ORIGINS and MCP_ALLOW_UNAUTHENTICATED.
+Exit code 2 means a usage or configuration error.
 
 Example: zoekt-mcp --url http://localhost:6070
 Docs:    https://github.com/itaymendel/zoekt-mcp#readme

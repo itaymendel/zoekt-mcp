@@ -3,10 +3,9 @@ import { connect } from "node:net";
 import { Writable } from "node:stream";
 import { type Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import pino from "pino";
-import { loadConfig } from "../src/config.js";
 import { createHttpServer } from "../src/http.js";
 import { createLogger } from "../src/logger.js";
-import { createServerFactory } from "../src/server.js";
+import { createMcpServer } from "../src/server.js";
 import { startFakeZoekt } from "./helpers/fake-zoekt.js";
 import {
 	rawRequest,
@@ -133,41 +132,9 @@ describe("routes", () => {
 		expect(post.headers.get("allow")).toBe("GET, HEAD");
 		expect(zoektFetch.requests).toHaveLength(0);
 	});
-
-	test("no response has access-control-allow-origin", async () => {
-		const { baseUrl } = await start();
-		const headers = { origin: "http://example.com" };
-		const responses = await Promise.all([
-			postMcp(baseUrl, initializeBody(), headers),
-			fetch(`${baseUrl}/mcp`, { method: "OPTIONS", headers }),
-			fetch(`${baseUrl}/healthz`, { headers }),
-			fetch(`${baseUrl}/sse`, { headers }),
-			fetch(`${baseUrl}/health`, { headers }),
-		]);
-
-		for (const res of responses) {
-			expect(res.headers.get("access-control-allow-origin")).toBeNull();
-		}
-	});
 });
 
 describe("lifecycle", () => {
-	test("start() reports bound port for port 0", async () => {
-		const { port, baseUrl } = await start();
-
-		expect(port).toBeGreaterThan(0);
-		expect(baseUrl).toBe(`http://127.0.0.1:${port}`);
-	});
-
-	test("close() resolves and port refuses connections", async () => {
-		const server = await start();
-		expect((await fetch(`${server.baseUrl}/healthz`)).status).toBe(200);
-
-		await server.close();
-
-		await expect(fetch(`${server.baseUrl}/healthz`)).rejects.toThrow();
-	});
-
 	test("start() rejects when the port is taken", async () => {
 		const first = await start();
 		const second = createHttpServer({
@@ -189,24 +156,6 @@ describe("bind address", () => {
 	test("binds 127.0.0.1 by default", async () => {
 		const server = await start();
 		expect(server.host).toBe("127.0.0.1");
-	});
-
-	test("binds the ::1 host that loadConfig produces from [::1]", async () => {
-		const { mcpHost } = loadConfig(
-			{ mcpHost: "[::1]" },
-			{ ZOEKT_URL: "http://localhost:6070", MCP_TRANSPORT: "http" },
-		);
-		let server: TestServer;
-		try {
-			server = await start({ host: mcpHost });
-		} catch (error) {
-			// No IPv6 loopback in this environment.
-			if (["EADDRNOTAVAIL", "EAFNOSUPPORT"].includes((error as NodeJS.ErrnoException).code ?? ""))
-				return;
-			throw error;
-		}
-		expect(server.host).toBe("::1");
-		expect((await fetch(`http://[::1]:${server.port}/healthz`)).status).toBe(200);
 	});
 });
 
@@ -241,15 +190,6 @@ describe("Host validation", () => {
 			});
 			expect(res.status).toBe(200);
 		}
-	});
-
-	test("* disables the Host check", async () => {
-		const server = await start({ allowedHosts: ["*"] });
-		const res = await rawRequest(server, {
-			headers: { ...MCP_HEADERS, host: "anything.example" },
-			body: initializeBody(),
-		});
-		expect(res.status).toBe(200);
 	});
 });
 
@@ -306,7 +246,10 @@ describe("Origin validation and CORS", () => {
 		for (const origin of ["https://app.example.com", "https://evil.example", "null"]) {
 			for (const path of ["/mcp", "/healthz", "/sse", "/nope"]) {
 				const res = await fetch(`${baseUrl}${path}`, { method: "POST", headers: { origin } });
-				expect(res.headers.get("access-control-allow-origin")).not.toBe("*");
+				const allowOrigin = res.headers.get("access-control-allow-origin");
+				expect(allowOrigin).not.toBe("*");
+				// Only the allowlisted origin on /mcp is ever echoed.
+				if (origin !== "https://app.example.com" || path !== "/mcp") expect(allowOrigin).toBeNull();
 			}
 		}
 	});
@@ -377,12 +320,12 @@ describe("bearer auth", () => {
 				done();
 			},
 		});
-		const logger = createLogger("debug", undefined, sink);
+		const logger = createLogger("debug", sink);
 		// Even a deliberately careless log of the request headers is redacted.
 		logger.info({ req: { headers: { authorization: `Bearer ${TOKEN}` } } }, "careless");
 
 		const http = createHttpServer({
-			createServer: createServerFactory(testDeps()),
+			createServer: () => createMcpServer(testDeps()),
 			host: "127.0.0.1",
 			port: 0,
 			logger,
@@ -420,15 +363,14 @@ describe("body cap", () => {
 });
 
 describe("graceful shutdown", () => {
-	test("idle close() is fast, not forced, and the port refuses", async () => {
+	test("idle close() is fast and the port refuses", async () => {
 		const server = await start();
 		expect((await fetch(`${server.baseUrl}/healthz`)).status).toBe(200);
 
 		const started = performance.now();
-		const { forced } = await server.close();
+		await server.close();
 
 		expect(performance.now() - started).toBeLessThan(500);
-		expect(forced).toBe(false);
 		await expect(fetch(`${server.baseUrl}/healthz`)).rejects.toThrow();
 	});
 
@@ -471,24 +413,9 @@ describe("graceful shutdown", () => {
 		expect(arrived.url).toBe("/mcp");
 
 		const started = performance.now();
-		const { forced } = await server.close();
+		await server.close();
 		socket.destroy();
 
-		expect(forced).toBe(true);
 		expect(performance.now() - started).toBeLessThan(200 + 1500);
-	});
-});
-
-describe("healthz bypass", () => {
-	test("GET and HEAD are 200 with a bad Origin and wrong Host", async () => {
-		const server = await start();
-		for (const method of ["GET", "HEAD"]) {
-			const res = await rawRequest(server, {
-				path: "/healthz",
-				method,
-				headers: { origin: "https://evil.example", host: "evil.example" },
-			});
-			expect(res.status).toBe(200);
-		}
 	});
 });

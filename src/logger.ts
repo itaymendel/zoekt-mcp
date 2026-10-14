@@ -11,10 +11,7 @@ const LOG_REDACT = {
 
 export function createLogger(
 	minLevel: LogLevel,
-	context?: Record<string, unknown>,
 	destination: pino.DestinationStream = pino.destination({ dest: 2, sync: true }),
 ): Logger {
-	const logger = pino({ level: minLevel, redact: LOG_REDACT }, destination);
-
-	return context ? logger.child(context) : logger;
+	return pino({ level: minLevel, redact: LOG_REDACT }, destination);
 }

@@ -107,8 +107,8 @@ Examples: `handleRequest\( lang:go -f:_test`, `sym:Server f:\.ts$`, `type:file f
 
 - **Loopback by default.** HTTP binds to `127.0.0.1`. Binding any other address without `MCP_AUTH_TOKEN` (or `MCP_AUTH_TOKEN_FILE`) is refused: the server exits with code 2 unless `MCP_ALLOW_UNAUTHENTICATED=true`.
 - **Bearer token.** `MCP_AUTH_TOKEN` or `MCP_AUTH_TOKEN_FILE` (not both) sets a token of at least 16 characters. `/mcp` then requires `Authorization: Bearer <token>`, compared in constant time; the token is never logged.
-- **Host and Origin validation** on `/mcp` is always on (DNS-rebinding protection). Loopback names are always allowed; add others with `MCP_ALLOWED_HOSTS` (hostnames without ports, IPv6 in brackets; `*` disables the Host check) and `MCP_ALLOWED_ORIGINS` (browser origins, which are also granted CORS).
-- **Body cap.** Request bodies over `MCP_MAX_BODY_BYTES` (1 MiB by default) get 413.
+- **Host and Origin validation** on `/mcp` is always on (DNS-rebinding protection). Loopback names are always allowed; add others with `MCP_ALLOWED_HOSTS` (hostnames without ports; IPv6 literals in brackets) and `MCP_ALLOWED_ORIGINS` (browser origins, which are also granted CORS).
+- **Body cap.** Request bodies over 1 MiB get 413.
 - **Zoekt credentials.** `ZOEKT_URL=https://user:pass@host` is sent as HTTP Basic auth and never appears in logs or errors.
 - **Behind a reverse proxy**, terminate TLS there, forward the original `Host`, and list the public hostname in `MCP_ALLOWED_HOSTS`. Do not expose the server without a token.
 - `/healthz` is exempt from these checks.
@@ -130,8 +130,6 @@ CLI flags take precedence over environment variables. Empty values count as unse
 | | `MCP_AUTH_TOKEN` | none | Bearer token for `/mcp` (at least 16 characters) |
 | | `MCP_AUTH_TOKEN_FILE` | none | Read the token from a file (exclusive with `MCP_AUTH_TOKEN`) |
 | | `MCP_ALLOW_UNAUTHENTICATED` | `false` | `true` allows a non-loopback bind without a token |
-| | `MCP_MAX_BODY_BYTES` | `1048576` | Largest `/mcp` request body (1024 to 16777216) |
-| | `MCP_SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period on SIGINT/SIGTERM before connections are dropped (0 to 120000) |
 
 ## Migrating from 0.1.x
 

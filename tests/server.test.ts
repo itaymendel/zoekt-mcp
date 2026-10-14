@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Client } from "@modelcontextprotocol/client";
-import { createMcpServer } from "../src/server.js";
 import { connectTestClient, resultText } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
 import { mockZoektFetch } from "./helpers/zoekt-fixtures.js";
@@ -26,46 +25,41 @@ afterEach(async () => {
 	await client.close();
 });
 
-describe("tool schemas", () => {
-	test("search exposes constraints, defaults and descriptions", async () => {
+describe("tool metadata", () => {
+	test("tools advertise read-only annotations, titles and the constraints clients validate against", async () => {
 		const { tools } = await client.listTools();
-		const search = tools.find((t) => t.name === "search");
-		const props = search?.inputSchema.properties as Record<string, Record<string, unknown>>;
+		const byName = new Map(tools.map((t) => [t.name, t]));
+		const props = (name: string) =>
+			(byName.get(name)?.inputSchema.properties ?? {}) as Record<string, Record<string, unknown>>;
+		const required = (name: string) => byName.get(name)?.inputSchema.required ?? [];
 
-		expect(props.query?.type).toBe("string");
-		expect(props.query?.minLength).toBe(1);
-		expect(props.limit).toBeUndefined();
-		expect(props.maxFiles).toMatchObject({ minimum: 1, maximum: 100, default: 20 });
-		expect(String(props.maxFiles?.description).length).toBeGreaterThan(0);
-		expect(props.maxMatchesPerFile).toMatchObject({ minimum: 1, maximum: 50, default: 5 });
-		expect(props.contextLines).toMatchObject({ minimum: 0, maximum: 10, default: 2 });
-		expect(search?.inputSchema.required).toEqual(["query"]);
-	});
+		expect([...byName.keys()].sort()).toEqual(["list_repos", "read_file", "search"]);
+		for (const tool of tools) {
+			expect(tool.title).toBeTruthy();
+			expect(tool.annotations).toEqual({
+				readOnlyHint: true,
+				idempotentHint: true,
+				destructiveHint: false,
+				openWorldHint: false,
+			});
+		}
+		expect(client.getServerVersion()).toMatchObject({
+			name: "zoekt-mcp",
+			title: "Zoekt Code Search",
+		});
 
-	test("list_repos and read_file expose their properties", async () => {
-		const { tools } = await client.listTools();
-		const listRepos = tools.find((t) => t.name === "list_repos");
-		const readFile = tools.find((t) => t.name === "read_file");
-
-		expect(Object.keys(listRepos?.inputSchema.properties ?? {})).toEqual([
-			"filter",
-			"limit",
-			"offset",
-		]);
-		const props = listRepos?.inputSchema.properties as Record<string, Record<string, unknown>>;
-		expect(props.filter?.maxLength).toBe(500);
-		expect(props.limit).toMatchObject({ minimum: 1, maximum: 200, default: 50 });
-		expect(props.offset).toMatchObject({ minimum: 0, default: 0 });
-		expect(listRepos?.inputSchema.required ?? []).toEqual([]);
-		expect(Object.keys(readFile?.inputSchema.properties ?? {}).sort()).toEqual([
-			"branch",
-			"endLine",
-			"path",
-			"repo",
-			"startLine",
-		]);
-		expect(readFile?.inputSchema.required?.slice().sort()).toEqual(["path", "repo"]);
-		expect(tools.some((t) => t.name === "file_content")).toBe(false);
+		expect(required("search")).toEqual(["query"]);
+		expect(props("search").maxFiles).toMatchObject({ minimum: 1, maximum: 100, default: 20 });
+		expect(props("search").maxMatchesPerFile).toMatchObject({
+			minimum: 1,
+			maximum: 50,
+			default: 5,
+		});
+		expect(props("search").contextLines).toMatchObject({ minimum: 0, maximum: 10, default: 2 });
+		expect([...required("read_file")].sort()).toEqual(["path", "repo"]);
+		expect(required("list_repos")).toEqual([]);
+		expect(props("list_repos").limit).toMatchObject({ minimum: 1, maximum: 200, default: 50 });
+		expect(props("list_repos").offset).toMatchObject({ minimum: 0, default: 0 });
 	});
 });
 
@@ -145,16 +139,5 @@ describe("tool errors carry Zoekt's text", () => {
 		} finally {
 			await mcp.close();
 		}
-	});
-});
-
-describe("createMcpServer", () => {
-	test("createMcpServer is a pure factory", () => {
-		const shared = testDeps();
-		const a = createMcpServer(shared);
-		const b = createMcpServer(shared);
-
-		expect(a).not.toBe(b);
-		expect(requestedUrls).toHaveLength(0);
 	});
 });

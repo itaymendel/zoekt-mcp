@@ -9,9 +9,11 @@ import {
 	type McpServer,
 } from "@modelcontextprotocol/server";
 import pkg from "../package.json";
-import { DEFAULT_MAX_BODY_BYTES, DEFAULT_SHUTDOWN_TIMEOUT_MS } from "./config.js";
 import type { Logger } from "./logger.js";
 import { getErrorMessage } from "./utils.js";
+
+const DEFAULT_MAX_BODY_BYTES = 1_048_576;
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export interface HttpServerOptions {
 	/** Called once per request; must not own long-lived state (build shared deps outside). */
@@ -21,7 +23,7 @@ export interface HttpServerOptions {
 	logger: Logger;
 	/** After this long, close() drops connections that are still open (default 10000). */
 	shutdownTimeoutMs?: number;
-	/** Extra Host hostnames (port-agnostic) on top of localhost; `*` disables the Host check. */
+	/** Extra Host hostnames (port-agnostic) on top of localhost; IPv6 literals in brackets. */
 	allowedHosts?: string[];
 	/** Extra allowed browser origins, already normalized (`URL.origin`, e.g. https://app.example.com); also granted CORS. */
 	allowedOrigins?: string[];
@@ -36,8 +38,8 @@ export interface HttpServer {
 	readonly server: Server;
 	/** Resolves the actually bound address (supports port 0). */
 	start(): Promise<{ host: string; port: number }>;
-	/** `forced` is true when connections had to be dropped after shutdownTimeoutMs. */
-	close(): Promise<{ forced: boolean }>;
+	/** Stops listening, then drops any connections still open after shutdownTimeoutMs. */
+	close(): Promise<void>;
 }
 
 type Route = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
@@ -64,14 +66,6 @@ const sha256 = (value: string) => createHash("sha256").update(value).digest();
 function bearerMatches(header: string | undefined, tokenDigest: Buffer): boolean {
 	const match = /^Bearer (.+)$/i.exec(header ?? "");
 	return match?.[1] !== undefined && timingSafeEqual(sha256(match[1]), tokenDigest);
-}
-
-function normalizeOrigin(value: string | undefined): string | undefined {
-	try {
-		return value ? new URL(value).origin : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 /**
@@ -109,8 +103,6 @@ export function createHttpServer({
 	const handler = createMcpHandler(createMcpServer, { onerror, maxRequestBodySize: maxBodyBytes });
 	const mcpHandler = toNodeHandler(handler, { onerror, maxRequestBodySize: maxBodyBytes });
 
-	const anyHost = allowedHosts.includes("*");
-	if (anyHost) logger.warn("MCP_ALLOWED_HOSTS=* disables Host header validation");
 	const validateHost = hostHeaderValidation([...localhostAllowedHostnames(), ...allowedHosts]);
 	const corsOrigins = new Set(allowedOrigins);
 	const validateOrigin = originValidation([
@@ -119,52 +111,37 @@ export function createHttpServer({
 	]);
 	const tokenDigest = authToken === undefined ? undefined : sha256(authToken);
 
-	// Each guard returns true to continue; on false it has already answered the request.
-	type Guard = (req: IncomingMessage, res: ServerResponse) => boolean;
+	// Each validator answers the request itself and returns false when it rejects.
+	// Order matters: Host -> Origin -> CORS/preflight -> auth -> body cap -> SDK.
+	const mcp: Route = async (req, res) => {
+		if (!validateHost(req, res) || !validateOrigin(req, res)) return;
 
-	const hostGuard: Guard = (req, res) => anyHost || validateHost(req, res);
-	const originGuard: Guard = (req, res) => validateOrigin(req, res);
-
-	/** Echoes explicitly allowed origins and answers their preflight; nothing else gets CORS. */
-	const corsGuard: Guard = (req, res) => {
-		const origin = normalizeOrigin(req.headers.origin);
-		const allowed = origin !== undefined && corsOrigins.has(origin);
-		if (allowed) {
+		// Echo explicitly allowed origins and answer their preflight; nothing else gets CORS.
+		const origin = req.headers.origin;
+		const corsAllowed = origin !== undefined && corsOrigins.has(origin);
+		if (corsAllowed) {
 			res.setHeader("Access-Control-Allow-Origin", origin);
 			res.setHeader("Vary", "Origin");
 		}
-		if (req.method !== "OPTIONS" || req.headers.origin === undefined) return true;
-		if (!allowed) {
-			sendJson(res, 403, { error: "Origin not allowed" });
-			return false;
+		if (req.method === "OPTIONS" && origin !== undefined) {
+			if (!corsAllowed) return sendJson(res, 403, { error: "Origin not allowed" });
+			res.setHeader("Access-Control-Allow-Methods", CORS_METHODS);
+			res.setHeader(
+				"Access-Control-Allow-Headers",
+				req.headers["access-control-request-headers"] ?? DEFAULT_CORS_HEADERS,
+			);
+			res.writeHead(204).end();
+			return;
 		}
-		res.setHeader("Access-Control-Allow-Methods", CORS_METHODS);
-		res.setHeader(
-			"Access-Control-Allow-Headers",
-			req.headers["access-control-request-headers"] ?? DEFAULT_CORS_HEADERS,
-		);
-		res.writeHead(204).end();
-		return false;
-	};
 
-	const authGuard: Guard = (req, res) => {
-		if (tokenDigest === undefined || bearerMatches(req.headers.authorization, tokenDigest)) {
-			return true;
+		if (tokenDigest !== undefined && !bearerMatches(req.headers.authorization, tokenDigest)) {
+			return sendJson(res, 401, { error: "Unauthorized" }, UNAUTHORIZED_HEADERS);
 		}
-		sendJson(res, 401, { error: "Unauthorized" }, UNAUTHORIZED_HEADERS);
-		return false;
-	};
 
-	const bodyGuard: Guard = (req, res) => {
-		if (!(Number(req.headers["content-length"]) > maxBodyBytes)) return true;
-		sendJson(res, 413, { error: `Request body exceeds ${maxBodyBytes} bytes` });
-		return false;
-	};
+		if (Number(req.headers["content-length"]) > maxBodyBytes) {
+			return sendJson(res, 413, { error: `Request body exceeds ${maxBodyBytes} bytes` });
+		}
 
-	// Order matters: Host -> Origin -> CORS/preflight -> auth -> body cap -> SDK.
-	const guards = [hostGuard, originGuard, corsGuard, authGuard, bodyGuard];
-	const mcp: Route = async (req, res) => {
-		for (const guard of guards) if (!guard(req, res)) return;
 		await mcpHandler(req, res);
 	};
 
@@ -220,11 +197,10 @@ export function createHttpServer({
 				});
 			}),
 		close: async () => {
-			let forced = false;
 			const closed = new Promise<void>((resolve) => server.close(() => resolve()));
 			server.closeIdleConnections();
 			const timer = setTimeout(() => {
-				forced = true;
+				logger.warn("Shutdown grace elapsed, dropping open connections");
 				connections.destroyAll();
 			}, shutdownTimeoutMs);
 			try {
@@ -232,7 +208,6 @@ export function createHttpServer({
 			} finally {
 				clearTimeout(timer);
 			}
-			return { forced };
 		},
 	};
 }

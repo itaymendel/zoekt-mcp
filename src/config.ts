@@ -9,10 +9,6 @@ const TransportSchema = z.enum(["http", "stdio"], { error: 'must be "stdio" or "
 
 const MIN_TOKEN_LENGTH = 16;
 
-/** Defaults shared with createHttpServer so the two layers cannot drift. */
-export const DEFAULT_MAX_BODY_BYTES = 1048576;
-export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10000;
-
 /** Whole-number string within [min, max]; anything else (incl. "1e3", "0x10", "1.5") fails. */
 function intString(min: number, max: number, message: string) {
 	return z
@@ -43,11 +39,11 @@ const csvList = <T extends z.ZodType<unknown, string>>(item: T) =>
 
 // Bare hostnames only: ports are never pinned, and IPv6 must be bracketed ([::1]).
 const HOSTS_MESSAGE =
-	"must be comma-separated hostnames without ports (IPv6 in brackets, e.g. [::1]), or *";
+	"must be comma-separated hostnames without ports (IPv6 in brackets, e.g. [::1])";
 const HostsSchema = csvList(
 	z
 		.string()
-		.regex(/^([^\s/:[\]]+|\[[0-9a-f:.]+\])$/i, HOSTS_MESSAGE)
+		.regex(/^([^\s/:[\]*]+|\[[0-9a-f:.]+\])$/i, HOSTS_MESSAGE)
 		.transform((host) => host.toLowerCase()),
 );
 
@@ -91,11 +87,7 @@ const ConfigSchema = z.object({
 			message: "credentials are not valid percent-encoding",
 		}),
 	mcpPort: intString(1, 65535, "must be an integer between 1 and 65535").default(3000),
-	// node's listen() rejects "[::1]", so bracketed IPv6 literals are stored bare.
-	mcpHost: z
-		.string()
-		.transform((host) => host.replace(/^\[(.*)\]$/, "$1"))
-		.default("127.0.0.1"),
+	mcpHost: z.string().default("127.0.0.1"),
 	mcpTransport: TransportSchema.default("stdio"),
 	logLevel: LogLevelSchema.default("info"),
 	zoektTimeoutMs: intString(
@@ -106,16 +98,6 @@ const ConfigSchema = z.object({
 	mcpAllowedHosts: HostsSchema.default([]),
 	mcpAllowedOrigins: OriginsSchema.default([]),
 	mcpAllowUnauthenticated: boolString('must be "true" or "false"').default(false),
-	mcpMaxBodyBytes: intString(
-		1024,
-		16777216,
-		"must be an integer between 1024 and 16777216 (bytes)",
-	).default(DEFAULT_MAX_BODY_BYTES),
-	mcpShutdownTimeoutMs: intString(
-		0,
-		120000,
-		"must be an integer between 0 and 120000 (milliseconds)",
-	).default(DEFAULT_SHUTDOWN_TIMEOUT_MS),
 });
 
 type RawKey = keyof z.input<typeof ConfigSchema>;
@@ -134,8 +116,6 @@ const SOURCES: Record<RawKey, { flag?: string; env: string }> = {
 	mcpAllowedHosts: { env: "MCP_ALLOWED_HOSTS" },
 	mcpAllowedOrigins: { env: "MCP_ALLOWED_ORIGINS" },
 	mcpAllowUnauthenticated: { env: "MCP_ALLOW_UNAUTHENTICATED" },
-	mcpMaxBodyBytes: { env: "MCP_MAX_BODY_BYTES" },
-	mcpShutdownTimeoutMs: { env: "MCP_SHUTDOWN_TIMEOUT_MS" },
 };
 
 /** Every environment variable this server reads (the README config table is tested against it). */
@@ -186,9 +166,9 @@ export class ConfigError extends Error {
 	}
 }
 
-/** `localhost`, 127.0.0.0/8 and ::1 (mcpHost is already unbracketed). */
+/** `localhost`, 127.0.0.0/8 and ::1. */
 function isLoopbackHost(host: string): boolean {
-	const h = host.trim().toLowerCase();
+	const h = host.toLowerCase();
 	return h === "localhost" || h === "::1" || /^127(\.\d{1,3}){3}$/.test(h);
 }
 
@@ -243,7 +223,6 @@ export function loadConfig(
 		throw new ConfigError([
 			{
 				...SOURCES.mcpHost,
-				env: "MCP_HOST",
 				message:
 					"refusing to listen on a non-loopback address without authentication; set MCP_AUTH_TOKEN " +
 					"(or MCP_AUTH_TOKEN_FILE), or MCP_ALLOW_UNAUTHENTICATED=true to opt out",

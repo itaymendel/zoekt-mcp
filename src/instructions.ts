@@ -12,6 +12,3 @@ export const READ_ONLY_ANNOTATIONS = {
 	destructiveHint: false,
 	openWorldHint: false,
 } as const;
-
-/** Tool list cache lifetime advertised to 2026-era clients (one hour). */
-export const TOOLS_CACHE_TTL_MS = 3_600_000;

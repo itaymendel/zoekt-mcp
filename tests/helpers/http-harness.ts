@@ -1,6 +1,6 @@
 import { type IncomingMessage, request as nodeRequest } from "node:http";
 import { createHttpServer, type HttpServerOptions } from "../../src/http.js";
-import { cacheScopeFor, createServerFactory } from "../../src/server.js";
+import { createMcpServer } from "../../src/server.js";
 import { testDeps } from "./test-deps.js";
 import { type MockZoektFetch, mockZoektFetch } from "./zoekt-fixtures.js";
 
@@ -13,8 +13,8 @@ export interface TestServer {
 	zoektFetch: MockZoektFetch;
 	/** Resolves with the next request (in arrival order) whose headers the server has parsed. */
 	nextRequest(): Promise<IncomingMessage>;
-	/** Idempotent; `forced` is true when connections had to be dropped after shutdownTimeoutMs. */
-	close(): Promise<{ forced: boolean }>;
+	/** Idempotent. */
+	close(): Promise<void>;
 }
 
 export type TestServerOptions = Partial<
@@ -41,10 +41,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 		timeoutMs: zoektTimeoutMs,
 	});
 	const http = createHttpServer({
-		createServer: createServerFactory({
-			...deps,
-			cacheScope: cacheScopeFor({ mcpAuthToken: httpOptions.authToken }),
-		}),
+		createServer: () => createMcpServer(deps),
 		host,
 		port: 0,
 		logger: deps.logger,
@@ -58,7 +55,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 		for (const wake of waiters.splice(0)) wake();
 	});
 	const { host: boundHost, port } = await http.start();
-	let closing: Promise<{ forced: boolean }> | undefined;
+	let closing: Promise<void> | undefined;
 	return {
 		baseUrl: `http://127.0.0.1:${port}`,
 		port,

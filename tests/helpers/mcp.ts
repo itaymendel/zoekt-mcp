@@ -32,14 +32,8 @@ export function resultText(result: { content?: unknown }): string {
 }
 
 /** A client pinned to the 2026-07-28 era, connected to a running test HTTP server's `/mcp`. */
-export async function connectModernClient(
-	server: { baseUrl: string },
-	{ token }: { token?: string } = {},
-): Promise<Client> {
+export async function connectModernClient(server: { baseUrl: string }): Promise<Client> {
 	const client = makeTestClient({ versionNegotiation: { mode: { pin: "2026-07-28" } } });
-	const requestInit = token ? { headers: { Authorization: `Bearer ${token}` } } : undefined;
-	await client.connect(
-		new StreamableHTTPClientTransport(new URL(`${server.baseUrl}/mcp`), { requestInit }),
-	);
+	await client.connect(new StreamableHTTPClientTransport(new URL(`${server.baseUrl}/mcp`)));
 	return client;
 }

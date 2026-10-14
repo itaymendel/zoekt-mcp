@@ -1,6 +1,6 @@
 import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import pkg from "../package.json";
-import { SERVER_INSTRUCTIONS, TOOLS_CACHE_TTL_MS } from "./instructions.js";
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import type { Logger } from "./logger.js";
 import {
 	executeListRepos,
@@ -30,27 +30,7 @@ import type { ZoektClient } from "./zoekt/client.js";
 export interface ServerDeps {
 	client: ZoektClient;
 	logger: Logger;
-	/** Required so a forgotten value cannot silently mean `public`; see `cacheScopeFor`. */
-	cacheScope: CacheScope;
 }
-
-export type CacheScope = "public" | "private";
-
-/** Tool listings are `private` when a bearer token guards the server, else `public`. */
-export function cacheScopeFor(config: { mcpAuthToken?: string }): CacheScope {
-	return config.mcpAuthToken === undefined ? "public" : "private";
-}
-
-const cacheHints = (cacheScope: CacheScope) => {
-	const hint = { ttlMs: TOOLS_CACHE_TTL_MS, cacheScope };
-	return { "tools/list": hint, "server/discover": hint };
-};
-
-/** Cache hints only reach 2026-era clients; `tools/list` never varies per caller. */
-const CACHE_HINTS: Record<CacheScope, ReturnType<typeof cacheHints>> = {
-	public: cacheHints("public"),
-	private: cacheHints("private"),
-};
 
 function createToolHandler<I>(
 	logger: Logger,
@@ -75,18 +55,11 @@ function createToolHandler<I>(
 	};
 }
 
-/** Pure: builds a fresh McpServer around the given dependencies and holds no other state. */
-export function createMcpServer({
-	client: zoektClient,
-	logger,
-	cacheScope,
-}: ServerDeps): McpServer {
+/** Builds a fresh McpServer around the given dependencies; the Zoekt client is shared. */
+export function createMcpServer({ client: zoektClient, logger }: ServerDeps): McpServer {
 	const server = new McpServer(
 		{ name: pkg.name, version: pkg.version, title: "Zoekt Code Search" },
-		{
-			instructions: SERVER_INSTRUCTIONS,
-			cacheHints: CACHE_HINTS[cacheScope],
-		},
+		{ instructions: SERVER_INSTRUCTIONS },
 	);
 
 	server.registerTool(
@@ -126,9 +99,4 @@ export function createMcpServer({
 	);
 
 	return server;
-}
-
-/** A factory for per-request servers; the Zoekt client is shared, not rebuilt. */
-export function createServerFactory(deps: ServerDeps): () => McpServer {
-	return () => createMcpServer(deps);
 }

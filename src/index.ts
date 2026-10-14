@@ -1,22 +1,14 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import type { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import pkg from "../package.json";
-import type { Config } from "./config.js";
-import { ConfigError, formatConfigError, isExposedWithoutAuth, loadConfig } from "./config.js";
+import { ConfigError, isExposedWithoutAuth, loadConfig } from "./config.js";
 import { createHttpServer } from "./http.js";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
-import { cacheScopeFor, createServerFactory } from "./server.js";
+import { createMcpServer } from "./server.js";
 import { getErrorMessage, redactUrl } from "./utils.js";
 import { ZoektClient } from "./zoekt/client.js";
-
-// Best-effort: only reachable on a Node old enough to still parse and load the imports above.
-if (Number(process.versions.node.split(".")[0]) < 22) {
-	console.error("zoekt-mcp requires Node.js >= 22");
-	process.exit(2);
-}
 
 function printHelp(): void {
 	console.log(`zoekt-mcp - MCP server for Zoekt code search
@@ -35,56 +27,46 @@ Options:
 
 Every option also has an environment variable (--url is ZOEKT_URL, and so on).
 HTTP security settings are environment-only: MCP_AUTH_TOKEN, MCP_AUTH_TOKEN_FILE,
-MCP_ALLOWED_HOSTS, MCP_ALLOWED_ORIGINS, MCP_ALLOW_UNAUTHENTICATED, MCP_MAX_BODY_BYTES
-and MCP_SHUTDOWN_TIMEOUT_MS. Exit code 2 means a usage or configuration error.
+MCP_ALLOWED_HOSTS, MCP_ALLOWED_ORIGINS and MCP_ALLOW_UNAUTHENTICATED.
+Exit code 2 means a usage or configuration error.
 
 Example: zoekt-mcp --url http://localhost:6070
 Docs:    https://github.com/itaymendel/zoekt-mcp#readme`);
 }
 
-/** A bad command line; reported on stderr with exit code 2. */
-class UsageError extends Error {}
-
 function parseCliArgs(): Record<string, string | undefined> {
-	try {
-		const { values } = parseArgs({
-			options: {
-				url: { type: "string" },
-				transport: { type: "string" },
-				port: { type: "string" },
-				host: { type: "string" },
-				"log-level": { type: "string" },
-				timeout: { type: "string" },
-				help: { type: "boolean", short: "h" },
-				version: { type: "boolean", short: "v" },
-			},
-			strict: true,
-		});
+	const { values } = parseArgs({
+		options: {
+			url: { type: "string" },
+			transport: { type: "string" },
+			port: { type: "string" },
+			host: { type: "string" },
+			"log-level": { type: "string" },
+			timeout: { type: "string" },
+			help: { type: "boolean", short: "h" },
+			version: { type: "boolean", short: "v" },
+		},
+		strict: true,
+	});
 
-		if (values.help) {
-			printHelp();
-			process.exit(0);
-		}
-
-		if (values.version) {
-			console.log(`${pkg.name} ${pkg.version}`);
-			process.exit(0);
-		}
-
-		return {
-			zoektUrl: values.url,
-			mcpTransport: values.transport,
-			mcpPort: values.port,
-			mcpHost: values.host,
-			logLevel: values["log-level"],
-			zoektTimeoutMs: values.timeout,
-		};
-	} catch (error) {
-		if (String((error as NodeJS.ErrnoException).code).startsWith("ERR_PARSE_ARGS")) {
-			throw new UsageError((error as Error).message);
-		}
-		throw error;
+	if (values.help) {
+		printHelp();
+		process.exit(0);
 	}
+
+	if (values.version) {
+		console.log(`${pkg.name} ${pkg.version}`);
+		process.exit(0);
+	}
+
+	return {
+		zoektUrl: values.url,
+		mcpTransport: values.transport,
+		mcpPort: values.port,
+		mcpHost: values.host,
+		logLevel: values["log-level"],
+		zoektTimeoutMs: values.timeout,
+	};
 }
 
 async function main(): Promise<void> {
@@ -106,25 +88,42 @@ async function main(): Promise<void> {
 			timeoutMs: config.zoektTimeoutMs,
 			logger,
 		});
-		const createServer = createServerFactory({
-			client,
-			logger,
-			cacheScope: cacheScopeFor(config),
-		});
+		const createServer = () => createMcpServer({ client, logger });
 
 		if (config.mcpTransport === "stdio") {
-			await startStdioTransport(createServer, logger);
+			const handle = serveStdio(createServer, {
+				onerror: (error) => logger.error({ error: getErrorMessage(error) }, "stdio error"),
+			});
+			onShutdown(() => handle.close(), logger);
+			logger.info("Connected via stdio");
 		} else {
-			await startHttpTransport(createServer, config, logger);
+			const httpServer = createHttpServer({
+				createServer,
+				host: config.mcpHost,
+				port: config.mcpPort,
+				logger,
+				allowedHosts: config.mcpAllowedHosts,
+				allowedOrigins: config.mcpAllowedOrigins,
+				authToken: config.mcpAuthToken,
+			});
+
+			// loadConfig already refused this unless MCP_ALLOW_UNAUTHENTICATED=true.
+			if (isExposedWithoutAuth(config) && config.mcpAllowUnauthenticated) {
+				logger.warn(
+					"MCP_ALLOW_UNAUTHENTICATED=true: serving /mcp on a non-loopback address without authentication",
+				);
+			}
+			await httpServer.start();
+			onShutdown(() => httpServer.close(), logger);
 		}
 	} catch (error) {
-		if (error instanceof UsageError) {
-			console.error(`Error: ${error.message}`);
+		if (String((error as NodeJS.ErrnoException).code).startsWith("ERR_PARSE_ARGS")) {
+			console.error(`Error: ${(error as Error).message}`);
 			console.error('Run "zoekt-mcp --help" for usage information.');
 			process.exit(2);
 		}
 		if (error instanceof ConfigError) {
-			console.error(formatConfigError(error));
+			console.error(error.message);
 			process.exit(2);
 		}
 		logger.error({ error: getErrorMessage(error) }, "Fatal error");
@@ -132,8 +131,8 @@ async function main(): Promise<void> {
 	}
 }
 
-/** One handler for both signals: exit 0 when clean, 1 when forced or failed; a second signal exits 1. */
-function onShutdown(close: () => Promise<{ forced: boolean }>, logger: Logger): void {
+/** One handler for both signals: exit 0 once closed (even if stuck connections were dropped), 1 if closing fails; a second signal exits 1. */
+function onShutdown(close: () => Promise<void>, logger: Logger): void {
 	let shuttingDown = false;
 	const handle = (signal: string) => {
 		if (shuttingDown) {
@@ -143,10 +142,7 @@ function onShutdown(close: () => Promise<{ forced: boolean }>, logger: Logger): 
 		shuttingDown = true;
 		logger.info(`Received ${signal}, shutting down`);
 		close().then(
-			(result) => {
-				if (result.forced) logger.warn("forced shutdown");
-				process.exit(result.forced ? 1 : 0);
-			},
+			() => process.exit(0),
 			(error) => {
 				logger.error({ error: getErrorMessage(error) }, "Shutdown failed");
 				process.exit(1);
@@ -155,50 +151,6 @@ function onShutdown(close: () => Promise<{ forced: boolean }>, logger: Logger): 
 	};
 	process.on("SIGINT", handle);
 	process.on("SIGTERM", handle);
-}
-
-async function startStdioTransport(createServer: () => McpServer, logger: Logger): Promise<void> {
-	logger.info("Starting stdio transport");
-
-	const handle = serveStdio(createServer, {
-		onerror: (error) => logger.error({ error: getErrorMessage(error) }, "stdio error"),
-	});
-	onShutdown(async () => {
-		await handle.close();
-		return { forced: false };
-	}, logger);
-
-	logger.info("Connected via stdio");
-	if (process.stdin.isTTY) {
-		logger.warn("waiting for an MCP client on stdin; use --transport http for a network server");
-	}
-}
-
-async function startHttpTransport(
-	createServer: () => McpServer,
-	config: Config,
-	logger: Logger,
-): Promise<void> {
-	const httpServer = createHttpServer({
-		createServer,
-		host: config.mcpHost,
-		port: config.mcpPort,
-		logger,
-		shutdownTimeoutMs: config.mcpShutdownTimeoutMs,
-		allowedHosts: config.mcpAllowedHosts,
-		allowedOrigins: config.mcpAllowedOrigins,
-		authToken: config.mcpAuthToken,
-		maxBodyBytes: config.mcpMaxBodyBytes,
-	});
-
-	// loadConfig already refused this unless MCP_ALLOW_UNAUTHENTICATED=true.
-	if (isExposedWithoutAuth(config) && config.mcpAllowUnauthenticated) {
-		logger.warn(
-			"MCP_ALLOW_UNAUTHENTICATED=true: serving /mcp on a non-loopback address without authentication",
-		);
-	}
-	await httpServer.start();
-	onShutdown(() => httpServer.close(), logger);
 }
 
 main();
