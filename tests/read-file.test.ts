@@ -160,6 +160,20 @@ describe("read_file output", () => {
 		expect(text).toContain("Truncated: showing lines 131000-131001 of at least ");
 	});
 
+	test("reading to the last readable line of a fetch-capped file is not End of file", async () => {
+		const line = `${"z".repeat(63)}\n`;
+		const body = line.repeat(Math.ceil((MAX_FETCH_BYTES + 1024) / line.length));
+		const { text } = await callRead(printing(body), {
+			repo: ALPHA,
+			path: "huge.log",
+			startLine: 131_000,
+			endLine: 132_999,
+		});
+
+		expect(text).toMatch(/Truncated: showing lines 131000-\d+ of at least \d+\. Continue with/);
+		expect(text).not.toContain("End of file.");
+	});
+
 	test("end before start makes zero fetches", async () => {
 		const { result, text, fetch } = await callRead(printing("x\n"), {
 			repo: ALPHA,
@@ -188,6 +202,19 @@ describe("read_file request sequence", () => {
 });
 
 describe("read_file errors", () => {
+	test("unknown branch is rejected after one listRepos, without /print", async () => {
+		const { text, result, fetch } = await callRead(
+			{ "/search": "list-all", "/print": "print-ok" },
+			{ repo: ALPHA, path: "docs/notes.txt", branch: "nope" },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(text).toStartWith(
+			'read_file error: Branch "nope" is not indexed for example.test/alpha.',
+		);
+		expect(fetch.requests.map((u) => u.pathname)).toEqual(["/search"]);
+	});
+
 	test("file not found names the file", async () => {
 		const { text } = await callRead(
 			{ "/print": "print-not-found", "/search": "list-all" },
