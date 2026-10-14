@@ -12,81 +12,53 @@
 		"contentType": "application/json",
 		"body": {
 			"repos": {
-				"Last": {
-					"Query": "r:\".\"",
-					"Num": 0,
-					"Ctx": 0,
-					"AutoFocus": true,
-					"Debug": false
-				},
 				"Stats": {
-					"Repos": 3,
-					"Shards": 3,
-					"Documents": 18,
-					"IndexBytes": 1448,
-					"ContentBytes": 941,
-					"NewLinesCount": 49,
-					"DefaultBranchNewLinesCount": 46,
-					"OtherBranchesNewLinesCount": 81
+					"Repos": 3
 				},
 				"Repos": [
 					{
 						"Name": "example.test/alpha",
-						"URL": "",
 						"IndexTime": "1970-01-01T00:00:00Z",
 						"Branches": [
 							{
 								"Name": "main",
-								"Version": "65215178838c403c2b1ac794a567d135dff71cfb",
-								"URL": ""
+								"Version": "65215178838c403c2b1ac794a567d135dff71cfb"
 							},
 							{
 								"Name": "main-old",
-								"Version": "d2e349ab119c2f799d46b2da63e763e3e7e69c9a",
-								"URL": ""
+								"Version": "d2e349ab119c2f799d46b2da63e763e3e7e69c9a"
 							},
 							{
 								"Name": "feature",
-								"Version": "9296f2d10d2062d0bdfb16c00bb5789f42c06a11",
-								"URL": ""
+								"Version": "9296f2d10d2062d0bdfb16c00bb5789f42c06a11"
 							}
 						],
 						"Files": 15,
-						"Metadata": null,
-						"Size": 816,
-						"MemorySize": 1028
+						"Size": 816
 					},
 					{
 						"Name": "example.test/beta",
-						"URL": "",
 						"IndexTime": "1970-01-01T00:00:00Z",
 						"Branches": [
 							{
 								"Name": "HEAD",
-								"Version": "4c476ff292736e75c8633c40e71942c38342cefd",
-								"URL": ""
+								"Version": "4c476ff292736e75c8633c40e71942c38342cefd"
 							}
 						],
 						"Files": 1,
-						"Metadata": null,
-						"Size": 62,
-						"MemorySize": 184
+						"Size": 62
 					},
 					{
 						"Name": "example.test/delta",
-						"URL": "",
 						"IndexTime": "1970-01-01T00:00:00Z",
 						"Branches": [
 							{
 								"Name": "HEAD",
-								"Version": "91e66232143e31573ef152f8f67d851930a7ab3e",
-								"URL": ""
+								"Version": "91e66232143e31573ef152f8f67d851930a7ab3e"
 							}
 						],
 						"Files": 2,
-						"Metadata": null,
-						"Size": 63,
-						"MemorySize": 236
+						"Size": 63
 					}
 				]
 			}

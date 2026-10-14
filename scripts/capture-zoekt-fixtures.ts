@@ -5,7 +5,7 @@
  *
  * Builds the synthetic repositories from tests/fixtures/zoekt/repos, indexes them with the
  * pinned image, replays CASES against zoekt-webserver and writes one envelope per case plus
- * MANIFEST.json. Output is deterministic: running it twice leaves the working tree unchanged.
+ * MANIFEST.json (JSON bodies are projected to the fields src/zoekt/types.ts reads). Output is deterministic: running it twice leaves the working tree unchanged.
  */
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -23,6 +23,7 @@ import {
 	sha256,
 } from "../tests/helpers/fixture-repo.js";
 import type { ZoektManifest } from "../tests/helpers/zoekt-fixtures.js";
+import { projectBody } from "./lib/project.js";
 import { indexRepos, startWebserver, stop, ZOEKT_IMAGE } from "./lib/zoekt-docker.js";
 
 interface CaseDef {
@@ -113,7 +114,7 @@ async function capture(baseUrl: string, def: CaseDef) {
 	const contentType = res.headers.get("content-type") ?? "";
 	const text = await res.text();
 	const response: Record<string, unknown> = { status: res.status, contentType };
-	if (contentType.includes("json")) response.body = scrub(JSON.parse(text));
+	if (contentType.includes("json")) response.body = projectBody(scrub(JSON.parse(text)));
 	else response.bodyText = text;
 	const request: Record<string, unknown> = {
 		method: "GET",
