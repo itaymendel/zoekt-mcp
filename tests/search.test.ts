@@ -105,6 +105,17 @@ describe("rows", () => {
 
 		expect(text).toContain("## src/handler.go\n"); // beta, HEAD only
 		expect(text).not.toContain("(branches: HEAD");
+		// Fragments of one line join into a single row; indentation is preserved.
+		expect(text).toContain("4:\tx := handleRequest() + handleRequest()\n");
+		expect(text.match(/^4:/gm)).toHaveLength(2);
+	});
+
+	test("an empty context line renders as N-", () => {
+		const response = stub({
+			FileMatches: [zfile("r", "a", [{ ...matchAt(3), Before: "\n" }])],
+		});
+
+		expect(rowsOf(render(response, { contextLines: 1 }))).toEqual(["2-", "3:line 3"]);
 	});
 
 	test("shows the branch list when files differ, in the stored order", () => {
