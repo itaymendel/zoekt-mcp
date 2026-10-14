@@ -148,60 +148,6 @@ export interface SearchOptions {
 	symbols?: boolean;
 }
 
-/** A displayed line of a search hit: a matching line (`match`) or a context line. */
-export interface SearchLine {
-	/** 1-based line number. */
-	n: number;
-	/** Line text without the trailing newline; indentation preserved. */
-	text: string;
-	match: boolean;
-	/** ctags symbols defined on this line (match lines of `sym:` searches only). */
-	symbols?: SearchSymbol[];
-	/** `[start, end)` offsets of the matched fragments within `text` (match lines only). */
-	ranges?: Array<[number, number]>;
-}
-
-export interface SearchFile {
-	repo: string;
-	path: string;
-	branches: string[];
-	/** The file's path itself matched (Zoekt reports LineNum 0). */
-	filenameMatch: boolean;
-	/** Matching lines plus context lines, sorted by `n`. */
-	lines: SearchLine[];
-	/** Matching lines dropped by `maxMatchesPerFile` and not shown as context either. */
-	hiddenMatchLines: number;
-}
-
-type TruncationReason = "maxFiles" | "maxMatchesPerFile" | "outputBudget";
-
-/** Normalized, bounded view of a Zoekt search answer; what the text renderer consumes. */
-export interface SearchModel {
-	query: string;
-	files: SearchFile[];
-	totals: {
-		/** Zoekt's `FileCount`: files matched before the `num` cap. */
-		files: number;
-		/** Zoekt skipped files or shards, so `files` is a lower bound. */
-		filesIsLowerBound: boolean;
-		matches: number;
-	};
-	truncated: boolean;
-	truncation: {
-		reasons: TruncationReason[];
-		/** Matched files beyond the ones in `files` because of `maxFiles`. */
-		moreFiles: number;
-		/** Matching lines hidden by `maxMatchesPerFile` in the shown files. */
-		hiddenMatchLines: number;
-		filesOmittedByBudget: number;
-	};
-	durationMs: number;
-	/** The bounds this model was built under; the footer names them. */
-	limits: { maxFiles: number; maxMatchesPerFile: number; maxChars: number };
-	/** Final text of each entry of `files` (same order), filled in by `capSearch`. */
-	blocks: string[];
-}
-
 export interface ListReposOptions {
 	num?: number;
 }
@@ -212,7 +158,6 @@ export interface RepoList {
 	/** Total matching repositories (before paging). */
 	total: number;
 	offset: number;
-	limit: number;
 	/** More repositories exist beyond this page. */
 	truncated: boolean;
 	nextOffset?: number;
@@ -226,24 +171,4 @@ export interface RepoInfo {
 	sizeBytes: number;
 	/** ISO timestamp; omitted when Zoekt reports a zero time. */
 	indexedAt?: string;
-}
-
-/** Canonical shape of a `read_file` answer: a bounded, line-numbered window of one file. */
-export interface FileContent {
-	repo: string;
-	path: string;
-	branch?: string;
-	/** First line returned (1-based); equals the requested start. */
-	startLine: number;
-	/** Last line actually returned; `startLine - 1` when no line is returned. */
-	endLine: number;
-	/** Lines in the file; a lower bound when the fetch was cut at the byte cap. */
-	totalLines: number;
-	totalLinesIsLowerBound: boolean;
-	/** Returned lines in ascending order (CRLF stripped, long lines clipped). */
-	lines: Array<{ line: number; text: string }>;
-	truncated: boolean;
-	truncationReason?: "window" | "chars" | "fetchCap";
-	/** Where to continue when the window was cut and more lines are readable. */
-	nextStartLine?: number;
 }

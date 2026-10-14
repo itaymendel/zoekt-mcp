@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import pino from "pino";
 import { MAX_LINE_CHARS } from "../src/clip.js";
-import { capSearch, normalizeSearch, renderSearchText } from "../src/search-format.js";
-import { executeSearch, searchOutputSchema, searchSchema } from "../src/tools/search.js";
+import { DEFAULT_OUTPUT_CHARS, formatSearch } from "../src/search-format.js";
+import { executeSearch, searchSchema } from "../src/tools/search.js";
 import { SYMBOLS_COOLDOWN_MS, ZoektClient } from "../src/zoekt/client.js";
 import { hasSymAtom } from "../src/zoekt/query.js";
 import {
@@ -26,8 +26,8 @@ async function run(
 	const fetch = mockZoektFetch(routes);
 	const { client } = testDeps(fetch);
 	const parsed = searchSchema.parse({ query: "sym:lookup", contextLines: 0, ...input });
-	const result = await executeSearch(client, parsed, { signal });
-	return { fetch, client, ...result };
+	const text = await executeSearch(client, parsed, { signal });
+	return { fetch, client, text };
 }
 
 describe("hasSymAtom", () => {
@@ -121,34 +121,6 @@ describe("symbol suffix", () => {
 		expect(fetch.requests.find((u) => u.pathname === "/search")?.searchParams.get("ctx")).toBe("2");
 		expect(text).toContain("[func LookupEntry in struct registry.Registry]");
 	});
-
-	test("structured output carries symbols on match rows only", async () => {
-		const { structured } = await run(SYM_ROUTES, { contextLines: 0 });
-		const go = structured.files.find((f) => f.path === "src/registry.go");
-		const ts = structured.files.find((f) => f.path === "src/registry.ts");
-
-		expect(go?.lines.find((l) => l.line === 5)?.symbols).toEqual([
-			{ name: "LookupEntry", kind: "func", parent: "registry.Registry", parentKind: "struct" },
-		]);
-		expect(ts?.lines.find((l) => l.line === 7)?.symbols).toEqual([
-			{ name: "lookupAll", kind: "function" },
-		]);
-		for (const f of structured.files)
-			for (const l of f.lines) if (!l.isMatch) expect(l).not.toHaveProperty("symbols");
-		expect(searchOutputSchema.safeParse(structured).success).toBe(true);
-	});
-
-	test("structured output has no symbols when enrichment fails or is not wanted", async () => {
-		const failed = await run({
-			"/search": "search-sym",
-			"/api/search": () => new Response("nope", { status: 404 }),
-		});
-		const plain = await run({ "/search": "search-sym" }, { query: "-sym:zzz lookup" });
-
-		for (const { structured } of [failed, plain])
-			for (const f of structured.files)
-				for (const l of f.lines) expect(l).not.toHaveProperty("symbols");
-	});
 });
 
 describe("when no enrichment is wanted", () => {
@@ -240,11 +212,11 @@ describe("enrichment failure never fails the search", () => {
 
 		apiStatus = 200;
 		clock = SYMBOLS_COOLDOWN_MS - 1;
-		expect((await go()).text).not.toContain("  [");
+		expect(await go()).not.toContain("  [");
 		expect(apiCalls()).toBe(3);
 
 		clock = SYMBOLS_COOLDOWN_MS;
-		expect((await go()).text).toContain("[func LookupEntry");
+		expect(await go()).toContain("[func LookupEntry");
 		expect(apiCalls()).toBe(4);
 	});
 
@@ -264,7 +236,7 @@ describe("enrichment failure never fails the search", () => {
 		});
 		const input = searchSchema.parse({ query: "sym:lookup", contextLines: 0 });
 		const started = performance.now();
-		const { text } = await executeSearch(client, input, { signal: new AbortController().signal });
+		const text = await executeSearch(client, input, { signal: new AbortController().signal });
 
 		expect(performance.now() - started).toBeLessThan(1000);
 		expect(text).toContain("LookupEntry");
@@ -289,10 +261,10 @@ describe("enrichment failure never fails the search", () => {
 		const input = searchSchema.parse({ query: "sym:lookup", contextLines: 0 });
 		const go = () => executeSearch(client, input, { signal: new AbortController().signal });
 
-		expect((await go()).text).not.toContain("  [");
+		expect(await go()).not.toContain("  [");
 		expect(state.cancelled).toBe(true);
 		expect(state.pulled).toBeLessThan(10);
-		expect((await go()).text).toContain("[func LookupEntry");
+		expect(await go()).toContain("[func LookupEntry");
 	});
 
 	test("a failing /search still fails the tool and cancels the enrichment", async () => {
@@ -356,14 +328,16 @@ describe("suffix rendering", () => {
 		const index: SymbolIndex = new Map(
 			Object.entries(symbols).map(([n, s]) => [symbolKey("r", "a.go", Number(n)), s]),
 		);
-		const model = capSearch(
-			normalizeSearch(
-				{ result: stub(rows), symbols: index },
-				{ query: "sym:x", contextLines: opts.contextLines ?? 0 },
-			),
-			{ maxChars: opts.maxChars },
+		return formatSearch(
+			{ result: stub(rows), symbols: index },
+			{
+				query: "sym:x",
+				contextLines: opts.contextLines ?? 0,
+				maxFiles: 20,
+				maxMatchesPerFile: 50,
+				maxChars: opts.maxChars ?? DEFAULT_OUTPUT_CHARS,
+			},
 		);
-		return renderSearchText(model);
 	}
 
 	test("parent, no parent and no kind", () => {

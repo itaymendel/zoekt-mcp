@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-	buildFileContent,
-	formatFileContent,
-	MAX_FETCH_BYTES,
-	resolveRange,
-} from "../src/file-format.js";
+import { formatFile, MAX_FETCH_BYTES, resolveRange } from "../src/file-format.js";
 import { exactRepoAtom } from "../src/zoekt/query.js";
 import { expectGolden } from "./helpers/golden.js";
 import { connectTestClient, resultText, type TestMcp } from "./helpers/mcp.js";
@@ -98,11 +93,9 @@ describe("read_file output", () => {
 		expect(text.length).toBeLessThanOrEqual(40_300);
 		const last = rows(text).length;
 		expect(last).toBeLessThan(200);
-		expect(text).toContain(`character output limit was reached after line ${last}`);
 		expect(text).toEndWith(
 			`\n\n---\nTruncated: the 40,000-character output limit was reached after line ${last} (lines 1-${last} of 200). Continue with startLine=${last + 1}.`,
 		);
-		expect(text).toEndWith(`Continue with startLine=${last + 1}.`);
 	});
 
 	test("long line clipped", async () => {
@@ -143,10 +136,8 @@ describe("read_file output", () => {
 
 	test("past the lines readable under the fetch cap", () => {
 		const bytes = new TextEncoder().encode("a\nb\nc\npartial");
-		const file = buildFileContent(bytes, true, { repo: ALPHA, path: "a.ts" }, resolveRange(10));
-		const text = formatFileContent(file);
+		const text = formatFile(bytes, true, { repo: ALPHA, path: "a.ts" }, resolveRange(10));
 
-		expect(file.totalLines).toBe(3);
 		expect(text).toContain("beyond the 8 MiB read limit; only the first 3 lines are readable.");
 		expect(text).not.toContain("past the end");
 	});
@@ -190,16 +181,6 @@ describe("read_file output", () => {
 
 		expect(result.isError).toBe(true);
 		expect(text).toBe("read_file error: endLine (5) must not be before startLine (10).");
-		expect(fetch.requests).toHaveLength(0);
-	});
-
-	test("old layout rejected", async () => {
-		const { result, fetch } = await callRead(printing("x\n"), {
-			repository: ALPHA,
-			filePath: "a.ts",
-		});
-
-		expect(result.isError).toBe(true);
 		expect(fetch.requests).toHaveLength(0);
 	});
 });

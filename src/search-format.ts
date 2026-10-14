@@ -1,11 +1,8 @@
-import { clipLine, hardClip, splitLines, stripEol } from "./clip.js";
+import { clipLine, cutEnd, splitLines, stripEol } from "./clip.js";
 import { pathHeading, plural, repoHeading } from "./utils.js";
 import {
 	type FileMatch,
 	type Match,
-	type SearchFile,
-	type SearchLine,
-	type SearchModel,
 	type SearchResponse,
 	type SearchSymbol,
 	symbolKey,
@@ -21,32 +18,54 @@ const MIN_FIRST_FILE_CHARS = 200;
 const FOOTER_RULE = "---";
 const BLOCK_SEPARATOR = "\n\n";
 
-export interface NormalizeOptions {
+export interface SearchFormatOptions {
 	query: string;
 	/** Context lines to keep on each side of a match (Zoekt already limits them via `ctx`). */
 	contextLines: number;
+	/** Files shown; totals still count the rest. */
+	maxFiles: number;
 	/** Matching lines kept per file, in Zoekt's (score) order; context excluded. */
-	maxMatchesPerFile?: number;
-	/** Only this many files are normalized; totals still count the rest. */
-	maxFiles?: number;
+	maxMatchesPerFile: number;
+	/** Output budget in characters. */
+	maxChars: number;
 }
 
-/** `Before`/`After` are newline-terminated blocks; drop the one empty element after the last `\n`. */
-function contextRows(block: string): string[] {
-	return splitLines(block).map(stripEol);
+/** A displayed line of a hit: a matching line (`match`) or a context line. */
+interface SearchLine {
+	/** 1-based line number. */
+	n: number;
+	/** Line text without the trailing newline; indentation preserved. */
+	text: string;
+	match: boolean;
+	/** ctags symbols defined on this line (match lines of `sym:` searches only). */
+	symbols?: SearchSymbol[];
+	/** `[start, end)` of the first matched fragment within `text` (match lines only). */
+	focus?: [number, number];
 }
 
-/** One line per Zoekt `Match`: fragments concatenated, `ranges` marking each fragment's match. */
+interface SearchFile {
+	repo: string;
+	path: string;
+	branches: string[];
+	/** The file's path itself matched (Zoekt reports LineNum 0). */
+	filenameMatch: boolean;
+	/** Matching lines plus context lines, sorted by `n`. */
+	lines: SearchLine[];
+	/** Matching lines dropped by `maxMatchesPerFile` and not shown as context either. */
+	hiddenMatchLines: number;
+}
+
+/** One line per Zoekt `Match`: fragments concatenated, `focus` marking the first fragment's match. */
 function matchLine(match: Match): SearchLine {
 	let text = "";
-	const ranges: Array<[number, number]> = [];
+	let focus: [number, number] | undefined;
 	for (const f of match.Fragments) {
 		text += f.Pre;
-		ranges.push([text.length, text.length + f.Match.length]);
+		focus ??= [text.length, text.length + f.Match.length];
 		text += f.Match + f.Post;
 	}
 	const line: SearchLine = { n: match.LineNum, text: stripEol(text), match: true };
-	if (ranges.length > 0) line.ranges = ranges;
+	if (focus) line.focus = focus;
 	return line;
 }
 
@@ -55,11 +74,13 @@ function addContext(byLine: Map<number, SearchLine>, m: Match, contextLines: num
 	const put = (n: number, text: string) => {
 		if (n >= 1 && !byLine.has(n)) byLine.set(n, { n, text, match: false });
 	};
-	const before = contextRows(m.Before).slice(-contextLines);
+	// `Before`/`After` are newline-terminated blocks.
+	const before = splitLines(m.Before).map(stripEol).slice(-contextLines);
 	before.forEach((text, i) => {
 		put(m.LineNum - before.length + i, text);
 	});
-	contextRows(m.After)
+	splitLines(m.After)
+		.map(stripEol)
 		.slice(0, contextLines)
 		.forEach((text, i) => {
 			put(m.LineNum + 1 + i, text);
@@ -68,7 +89,7 @@ function addContext(byLine: Map<number, SearchLine>, m: Match, contextLines: num
 
 function normalizeFile(
 	file: FileMatch,
-	{ contextLines, maxMatchesPerFile = Number.POSITIVE_INFINITY }: NormalizeOptions,
+	{ contextLines, maxMatchesPerFile }: SearchFormatOptions,
 	symbols?: SearchResponse["symbols"],
 ): SearchFile {
 	const filenameMatch = file.Matches.some((m) => m.LineNum === 0);
@@ -93,41 +114,13 @@ function normalizeFile(
 		hiddenMatchLines = new Set(hidden.map((m) => m.LineNum)).size;
 	}
 
-	const out: SearchFile = {
+	return {
 		repo: file.Repo,
 		path: file.FileName,
 		branches: file.Branches,
 		filenameMatch,
 		lines: [...byLine.values()].sort((a, b) => a.n - b.n),
 		hiddenMatchLines,
-	};
-	return out;
-}
-
-/** Zoekt answer -> model. Pure; only per-file caps apply here (see `capSearch` for the rest). */
-export function normalizeSearch(response: SearchResponse, opts: NormalizeOptions): SearchModel {
-	const { FileMatches, Stats } = response.result;
-	const { maxFiles = Number.POSITIVE_INFINITY, maxMatchesPerFile = Number.POSITIVE_INFINITY } =
-		opts;
-	const files = FileMatches.slice(0, maxFiles).map((f) => normalizeFile(f, opts, response.symbols));
-	// Without Stats, count filename matches too: the footer subtracts them again.
-	const matchLines = files.reduce(
-		(n, f) => n + f.lines.filter((l) => l.match).length + (f.filenameMatch ? 1 : 0),
-		0,
-	);
-	return {
-		query: opts.query,
-		files,
-		totals: {
-			files: Math.max(Stats?.FileCount ?? 0, FileMatches.length),
-			filesIsLowerBound: (Stats?.FilesSkipped ?? 0) > 0 || (Stats?.ShardsSkipped ?? 0) > 0,
-			matches: Stats?.MatchCount || matchLines,
-		},
-		truncated: false,
-		truncation: { reasons: [], moreFiles: 0, hiddenMatchLines: 0, filesOmittedByBudget: 0 },
-		durationMs: Math.round((Stats?.Duration ?? 0) / 1e6),
-		limits: { maxFiles, maxMatchesPerFile, maxChars: DEFAULT_OUTPUT_CHARS },
-		blocks: [],
 	};
 }
 
@@ -179,23 +172,9 @@ function symbolSuffix(symbols: SearchSymbol[]) {
 
 /** The rows of one line: a `--` gap marker when it does not follow `prev`, then the line itself. */
 function lineRows(l: SearchLine, prev: number): string[] {
-	const focus = l.ranges?.[0];
 	const suffix = l.match && l.symbols?.length ? symbolSuffix(l.symbols) : "";
-	const row = `${l.n}${l.match ? ":" : "-"}${clipLine(l.text, { focus })}${suffix}`;
+	const row = `${l.n}${l.match ? ":" : "-"}${clipLine(l.text, { focus: l.focus })}${suffix}`;
 	return prev > 0 && l.n !== prev + 1 ? ["--", row] : [row];
-}
-
-/** How many leading lines of `file` are rendered whole within the first `limit` characters. */
-function linesWithin(file: SearchFile, withBranches: boolean, limit: number): number {
-	if (isNotIndexed(file)) return file.lines.length;
-	let used = fileHeader(file, withBranches).length;
-	let prev = 0;
-	for (const [i, l] of file.lines.entries()) {
-		for (const row of lineRows(l, prev)) used += 1 + row.length;
-		if (used > limit) return i;
-		prev = l.n;
-	}
-	return file.lines.length;
 }
 
 function renderFile(file: SearchFile, withBranches: boolean): string {
@@ -214,154 +193,88 @@ function renderFile(file: SearchFile, withBranches: boolean): string {
 	return out.join("\n");
 }
 
-// Layout of the body: `# repo` headings, files grouped by repo (first appearance), blank lines between.
 const repoLead = (repo: string) => `${repoHeading(repo)}\n`;
 
-function groupByRepo<T extends { repo: string }>(items: T[]): Map<string, T[]> {
-	const groups = new Map<string, T[]>();
-	for (const item of items) {
-		const group = groups.get(item.repo);
-		if (group) group.push(item);
-		else groups.set(item.repo, [item]);
-	}
-	return groups;
-}
-
-/** Characters a block adds to the body; `newRepo` is given the first time its repo appears. */
-function blockCost(block: string, newRepo?: string) {
-	return (
-		block.length + BLOCK_SEPARATOR.length + (newRepo === undefined ? 0 : repoLead(newRepo).length)
-	);
-}
-
-function layoutBody(entries: Array<{ repo: string; block: string }>) {
-	return [...groupByRepo(entries)]
-		.map(([repo, group]) => repoLead(repo) + group.map((e) => e.block).join(BLOCK_SEPARATOR))
-		.join(BLOCK_SEPARATOR);
-}
-
-export interface CapOptions {
-	/** Defaults to the value `normalizeSearch` was given. */
-	maxFiles?: number;
-	/** Output budget in characters; defaults to `DEFAULT_OUTPUT_CHARS`. */
-	maxChars?: number;
-}
-
 /**
- * Applies `maxFiles` and the output budget, renders every file block once (the first one is
- * hard-clipped if it alone exceeds the budget) and fills the truncation summary. Truncation is
- * only reported when something was actually left out.
+ * Zoekt answer -> the text a client sees; see the tool description. Applies `maxFiles`, the
+ * per-file match cap and the output budget (the first file is hard-clipped if it alone exceeds it),
+ * and ends with a footer naming whatever was left out.
  */
-export function capSearch(model: SearchModel, options: CapOptions = {}): SearchModel {
-	const maxFiles = options.maxFiles ?? model.limits.maxFiles;
-	const maxChars = options.maxChars ?? model.limits.maxChars;
-	const ranked = model.files.slice(0, maxFiles);
-	const moreFiles = Math.max(0, model.totals.files - ranked.length);
+export function formatSearch(response: SearchResponse, opts: SearchFormatOptions): string {
+	const { FileMatches, Stats } = response.result;
+	const { maxChars, maxMatchesPerFile } = opts;
+	const ranked = FileMatches.slice(0, opts.maxFiles).map((f) =>
+		normalizeFile(f, opts, response.symbols),
+	);
+	if (ranked.length === 0) return `No matches for \`${opts.query}\`.`;
+
+	const totalFiles = Math.max(Stats?.FileCount ?? 0, FileMatches.length);
+	const lowerBound = (Stats?.FilesSkipped ?? 0) > 0 || (Stats?.ShardsSkipped ?? 0) > 0;
+	const moreFiles = Math.max(0, totalFiles - ranked.length);
 	const withBranches = showBranches(ranked);
 
 	const budget = Math.max(maxChars - FOOTER_RESERVE, 0);
-	const files: SearchFile[] = [];
-	let blocks: string[] = [];
-	const repos = new Set<string>();
+	const firstLimit = Math.max(budget, MIN_FIRST_FILE_CHARS);
+	const groups = new Map<string, string[]>(); // repo -> blocks, in first-appearance order
+	const shown: SearchFile[] = [];
 	let used = 0;
 	let firstClipped = false;
-	const firstLimit = Math.max(budget, MIN_FIRST_FILE_CHARS);
 	for (const file of ranked) {
 		let block = renderFile(file, withBranches);
-		if (files.length === 0) {
+		if (shown.length === 0) {
 			firstClipped = block.length > firstLimit;
-			block = hardClip(block, firstLimit);
+			if (firstClipped) block = `${block.slice(0, cutEnd(block, firstLimit))}\n[output truncated]`;
 		}
-		const cost = blockCost(block, repos.has(file.repo) ? undefined : file.repo);
-		if (files.length > 0 && used + cost > budget) break;
-		files.push(file);
-		blocks.push(block);
-		repos.add(file.repo);
+		const group = groups.get(file.repo);
+		const cost = block.length + BLOCK_SEPARATOR.length + (group ? 0 : repoLead(file.repo).length);
+		if (shown.length > 0 && used + cost > budget) break;
+		if (group) group.push(block);
+		else groups.set(file.repo, [block]);
+		shown.push(file);
 		used += cost;
 	}
-	const filesOmittedByBudget = ranked.length - files.length;
+	const body = [...groups]
+		.map(([repo, blocks]) => repoLead(repo) + blocks.join(BLOCK_SEPARATOR))
+		.join(BLOCK_SEPARATOR);
 
-	// "Uniform" means uniform across what is printed; dropping suffixes only shrinks blocks.
-	const shownBranches = showBranches(files);
-	if (shownBranches !== withBranches) {
-		blocks = files.map((f) => renderFile(f, shownBranches));
-		const first = blocks[0] ?? "";
-		firstClipped = first.length > firstLimit;
-		blocks[0] = hardClip(first, firstLimit);
-	}
-
-	// The structured output must not outgrow the text: keep only the first file's lines that
-	// were printed whole. Totals and the truncation summary are unchanged ("outputBudget" says it).
-	const [head] = files;
-	if (head && firstClipped) {
-		files[0] = {
-			...head,
-			lines: head.lines.slice(0, linesWithin(head, shownBranches, firstLimit)),
-		};
-	}
-
-	const hiddenMatchLines = files.reduce((n, f) => n + f.hiddenMatchLines, 0);
-	const reasons: SearchModel["truncation"]["reasons"] = [];
-	if (moreFiles > 0) reasons.push("maxFiles");
-	if (hiddenMatchLines > 0) reasons.push("maxMatchesPerFile");
-	if (filesOmittedByBudget > 0 || firstClipped) reasons.push("outputBudget");
-	return {
-		...model,
-		files,
-		blocks,
-		truncated: reasons.length > 0,
-		truncation: { reasons, moreFiles, hiddenMatchLines, filesOmittedByBudget },
-		limits: { ...model.limits, maxFiles, maxChars },
-	};
-}
-
-function renderFooter(model: SearchModel) {
-	const { totals, truncation, files, limits } = model;
-	const atLeast = totals.filesIsLowerBound ? "at least " : "";
+	const hiddenMatchLines = shown.reduce((n, f) => n + f.hiddenMatchLines, 0);
+	const budgetCut = shown.length < ranked.length || firstClipped;
+	const atLeast = lowerBound ? "at least " : "";
 	const count = (n: number, noun: string) => `${n} ${plural(n, noun)}`;
 
-	if (!model.truncated) {
-		const filenameMatches = files.filter((f) => f.filenameMatch).length;
-		const lines = Math.max(totals.matches - filenameMatches, 0);
-		const parts = [`${totals.filesIsLowerBound ? "At least " : ""}${count(totals.files, "file")}`];
+	let footer: string;
+	if (moreFiles === 0 && hiddenMatchLines === 0 && !budgetCut) {
+		// Without Stats, count filename matches too: the footer subtracts them again.
+		const matches =
+			Stats?.MatchCount ||
+			ranked.reduce(
+				(n, f) => n + f.lines.filter((l) => l.match).length + (f.filenameMatch ? 1 : 0),
+				0,
+			);
+		const filenameMatches = shown.filter((f) => f.filenameMatch).length;
+		const lines = Math.max(matches - filenameMatches, 0);
+		const parts = [`${lowerBound ? "At least " : ""}${count(totalFiles, "file")}`];
 		if (lines > 0 || filenameMatches === 0) parts.push(count(lines, "matching line"));
 		if (filenameMatches > 0)
 			parts.push(`${filenameMatches} filename ${plural(filenameMatches, "match", "matches")}`);
-		return `${parts.join(", ")}.`;
+		footer = `${parts.join(", ")}.`;
+	} else {
+		const clauses: string[] = [];
+		if (moreFiles > 0) clauses.push(`showing ${shown.length} of ${atLeast}${totalFiles} files`);
+		if (hiddenMatchLines > 0) {
+			clauses.push(
+				`${count(hiddenMatchLines, "more matching line")} hidden by maxMatchesPerFile=${maxMatchesPerFile}`,
+			);
+		}
+		if (budgetCut) {
+			// With no files cut by maxFiles the budget clause is the one that counts them, bound included.
+			const total =
+				moreFiles > 0 ? count(ranked.length, "file") : `${atLeast}${count(totalFiles, "file")}`;
+			clauses.push(`output budget (${maxChars} chars) reached after ${shown.length} of ${total}`);
+		} else if (lowerBound && moreFiles === 0) {
+			clauses.push(`at least ${count(totalFiles, "file")} matched`);
+		}
+		footer = `Truncated: ${clauses.join("; ")}. Refine with repo:, file:, lang: or -file: filters, or raise maxFiles / maxMatchesPerFile.`;
 	}
-
-	const shown = files.length;
-	const ranked = shown + truncation.filesOmittedByBudget;
-	const has = (reason: SearchModel["truncation"]["reasons"][number]) =>
-		truncation.reasons.includes(reason);
-	// The budget clause carries the lower bound only when it is the one that counts the files.
-	const budgetCarriesBound = truncation.moreFiles === 0;
-
-	const clauses: string[] = [];
-	if (has("maxFiles")) {
-		clauses.push(`showing ${shown} of ${atLeast}${totals.files} files`);
-	}
-	if (has("maxMatchesPerFile")) {
-		const n = truncation.hiddenMatchLines;
-		const cap = Number.isFinite(limits.maxMatchesPerFile) ? `=${limits.maxMatchesPerFile}` : "";
-		clauses.push(`${count(n, "more matching line")} hidden by maxMatchesPerFile${cap}`);
-	}
-	if (has("outputBudget")) {
-		const lead = budgetCarriesBound ? atLeast : "";
-		clauses.push(
-			`output budget (${limits.maxChars} chars) reached after ${shown} of ${lead}${count(ranked, "file")}`,
-		);
-	}
-	const boundShown = has("maxFiles") || (has("outputBudget") && budgetCarriesBound);
-	if (totals.filesIsLowerBound && !boundShown) {
-		clauses.push(`at least ${count(totals.files, "file")} matched`);
-	}
-	return `Truncated: ${clauses.join("; ")}. Refine with repo:, file:, lang: or -file: filters, or raise maxFiles / maxMatchesPerFile.`;
-}
-
-/** The text a client sees, from a model that went through `capSearch`; see the tool description. */
-export function renderSearchText(model: SearchModel): string {
-	if (model.files.length === 0) return `No matches for \`${model.query}\`.`;
-	const entries = model.files.map((f, i) => ({ repo: f.repo, block: model.blocks[i] ?? "" }));
-	return `${layoutBody(entries)}${BLOCK_SEPARATOR}${FOOTER_RULE}\n${renderFooter(model)}`;
+	return `${body}${BLOCK_SEPARATOR}${FOOTER_RULE}\n${footer}`;
 }

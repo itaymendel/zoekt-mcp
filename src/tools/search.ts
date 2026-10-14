@@ -1,16 +1,8 @@
 import { z } from "zod";
-import { clipLine, MAX_LINE_CHARS } from "../clip.js";
 import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
-import {
-	capSearch,
-	DEFAULT_OUTPUT_CHARS,
-	normalizeSearch,
-	renderSearchText,
-} from "../search-format.js";
+import { DEFAULT_OUTPUT_CHARS, formatSearch } from "../search-format.js";
 import type { ZoektClient } from "../zoekt/client.js";
 import { hasSymAtom } from "../zoekt/query.js";
-import type { SearchModel } from "../zoekt/types.js";
-import type { ToolContext, ToolResult } from "./result.js";
 
 export const searchSchema = z.object({
 	query: z.string().min(1).describe("Zoekt query; syntax is in the tool description"),
@@ -63,108 +55,11 @@ export const searchDescription = `Search code with Zoekt. Matches are grouped by
 ## Output
 Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. For \`sym:\` queries a matching row ends with \`  [kind name]\` or \`  [kind name in parentKind parent]\`. Results are bounded by maxFiles, maxMatchesPerFile and an output size budget; the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
 
-/** One displayed line of a hit. Extend this object to add per-line fields. */
-const searchLineSchema = z.object({
-	line: z.number().int().describe("1-based line number"),
-	text: z
-		.string()
-		.describe(
-			`Line text without the line ending; indentation kept, clipped to ${MAX_LINE_CHARS} characters around the first match, as in the text output. When the output budget cuts the first file, only the lines printed whole are listed`,
-		),
-	isMatch: z.boolean().describe("true for a matching line, false for a context line"),
-	symbols: z
-		.array(
-			z.object({
-				name: z.string().describe("Symbol name"),
-				kind: z.string().describe("ctags kind, e.g. func, method, class"),
-				parent: z.string().optional().describe("Enclosing symbol, e.g. demo.Server"),
-				parentKind: z.string().optional().describe("ctags kind of the parent, e.g. struct"),
-			}),
-		)
-		.optional()
-		.describe(
-			"Symbols defined on this line; only on match lines of sym: searches when Zoekt reports them. The text suffix shows the same data, capped at 120 characters",
-		),
-});
-
-export const searchFileSchema = z.object({
-	repo: z.string().describe("Repository name; pass as `repo` to read_file"),
-	path: z.string().describe("File path within the repository; pass as `path` to read_file"),
-	branches: z.array(z.string()).describe("Indexed branches that contain this file version"),
-	filenameMatch: z.boolean().describe("The file path itself matched the query"),
-	lines: z
-		.array(searchLineSchema)
-		.describe("Matching and context lines in ascending line order; empty for filename-only hits"),
-	hiddenMatchLines: z
-		.number()
-		.int()
-		.describe("Matching lines in this file omitted because of maxMatchesPerFile"),
-});
-
-export const searchOutputSchema = z.object({
-	query: z.string().describe("The query as sent to Zoekt"),
-	files: z.array(searchFileSchema).describe("Files shown, best match first, grouped as printed"),
-	totalFiles: z.number().int().describe("Files that matched, including ones not shown"),
-	totalFilesIsLowerBound: z
-		.boolean()
-		.describe("Zoekt skipped files or shards, so totalFiles is a lower bound"),
-	totalMatches: z.number().int().describe("Matches reported by Zoekt"),
-	truncated: z.boolean().describe("Something matched but is not in `files` or `lines`"),
-	truncation: z.object({
-		reasons: z
-			.array(z.enum(["maxFiles", "maxMatchesPerFile", "outputBudget"]))
-			.describe("Which bounds cut the result; empty when not truncated"),
-		moreFiles: z.number().int().describe("Matched files beyond the maxFiles cap"),
-		hiddenMatchLines: z
-			.number()
-			.int()
-			.describe("Matching lines hidden by maxMatchesPerFile in the shown files"),
-		filesOmittedByBudget: z
-			.number()
-			.int()
-			.describe("Files dropped to stay within the output size budget"),
-	}),
-});
-
-export type SearchOutput = z.infer<typeof searchOutputSchema>;
-
-/** The public projection of the internal model: no rendered blocks, limits or offsets. */
-function toSearchOutput(model: SearchModel): SearchOutput {
-	const { totals, truncation } = model;
-	return {
-		query: model.query,
-		files: model.files.map((f) => ({
-			repo: f.repo,
-			path: f.path,
-			branches: f.branches,
-			filenameMatch: f.filenameMatch,
-			lines: f.lines.map((l) => ({
-				line: l.n,
-				text: clipLine(l.text, { focus: l.ranges?.[0] }),
-				isMatch: l.match,
-				...(l.symbols?.length ? { symbols: l.symbols } : {}),
-			})),
-			hiddenMatchLines: f.hiddenMatchLines,
-		})),
-		totalFiles: totals.files,
-		totalFilesIsLowerBound: totals.filesIsLowerBound,
-		totalMatches: totals.matches,
-		truncated: model.truncated,
-		truncation: {
-			reasons: truncation.reasons,
-			moreFiles: truncation.moreFiles,
-			hiddenMatchLines: truncation.hiddenMatchLines,
-			filesOmittedByBudget: truncation.filesOmittedByBudget,
-		},
-	};
-}
-
 export async function executeSearch(
 	client: ZoektClient,
 	input: SearchInput,
-	ctx: ToolContext,
-	{ maxChars = DEFAULT_OUTPUT_CHARS }: { maxChars?: number } = {},
-): Promise<ToolResult<SearchOutput>> {
+	ctx: { signal: AbortSignal },
+): Promise<string> {
 	const { query, maxFiles, maxMatchesPerFile, contextLines } = input;
 	// Ask for one file more than shown, so Zoekt's own cap cannot hide that there were more.
 	const response = await client.search(
@@ -172,13 +67,11 @@ export async function executeSearch(
 		{ signal: ctx.signal },
 	);
 
-	const model = capSearch(
-		normalizeSearch(response, { query, contextLines, maxMatchesPerFile, maxFiles }),
-		{ maxFiles, maxChars },
-	);
-	return {
-		text: renderSearchText(model),
-		structured: toSearchOutput(model),
-		summary: { query, files: model.files.length, durationMs: model.durationMs },
-	};
+	return formatSearch(response, {
+		query,
+		contextLines,
+		maxFiles,
+		maxMatchesPerFile,
+		maxChars: DEFAULT_OUTPUT_CHARS,
+	});
 }

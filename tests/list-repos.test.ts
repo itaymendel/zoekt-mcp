@@ -141,6 +141,33 @@ describe("list_repos output", () => {
 		);
 	});
 
+	test("repo URLs with credentials and metadata never reach the result", async () => {
+		const { result } = await callListRepos({
+			"/search": () =>
+				Response.json({
+					repos: {
+						Stats: { Repos: 1 },
+						Repos: [
+							repoEntry("org/r", {
+								URL: "https://user:secret@example.test/r.git",
+								Metadata: { token: "secret" },
+								Branches: [
+									{
+										Name: "HEAD",
+										Version: sha("a"),
+										URL: "https://user:secret@example.test/r.git",
+									},
+								],
+							}),
+						],
+					},
+				}),
+		});
+
+		expect(JSON.stringify(result)).toContain("org/r");
+		expect(JSON.stringify(result)).not.toContain("secret");
+	});
+
 	test("an empty listing (Repos: null) is not an error", async () => {
 		const { result, text } = await callListRepos({
 			"/search": () => Response.json({ repos: { Stats: { Repos: 0 }, Repos: null } }),
@@ -238,11 +265,11 @@ describe("list_repos paging", () => {
 });
 
 describe("normalizeRepoList and formatting", () => {
-	test("no nulls; zero IndexTime omitted; no sentinels", () => {
+	test("normalizes the fixture; Go's zero time is omitted and a real date shown as YYYY-MM-DD", () => {
 		const wire = RepoListWireSchema.parse(
 			(loadCase("list-all").response.body as { repos: unknown }).repos,
 		);
-		const list = normalizeRepoList(wire, { limit: 50, offset: 0 });
+		const list = normalizeRepoList(wire, { offset: 0 });
 
 		expect(list.total).toBe(3);
 		expect(list.truncated).toBe(false);
@@ -256,18 +283,16 @@ describe("normalizeRepoList and formatting", () => {
 			files: 15,
 			sizeBytes: 816,
 		});
-		expect(JSON.stringify(list)).not.toContain("null");
-	});
 
-	test("Go's zero time is omitted; a real date is shown as YYYY-MM-DD", () => {
-		const wire = RepoListWireSchema.parse({
-			Repos: [repoEntry("zero", { IndexTime: "0001-01-01T00:00:00Z" }), repoEntry("real")],
-		});
-		const list = normalizeRepoList(wire, { limit: 50, offset: 0 });
-
-		expect(list.repos[0]).not.toHaveProperty("indexedAt");
-		expect(list.repos[1]?.indexedAt).toBe("2025-03-04T05:06:07Z");
-		expect(formatRepoList(list)).toContain(
+		const dated = normalizeRepoList(
+			RepoListWireSchema.parse({
+				Repos: [repoEntry("zero", { IndexTime: "0001-01-01T00:00:00Z" }), repoEntry("real")],
+			}),
+			{ offset: 0 },
+		);
+		expect(dated.repos[0]?.indexedAt).toBeUndefined();
+		expect(dated.repos[1]?.indexedAt).toBe("2025-03-04T05:06:07Z");
+		expect(formatRepoList(dated)).toContain(
 			"real  HEAD@aaaaaaa  3 files  2.0 KiB  indexed 2025-03-04",
 		);
 	});
@@ -284,7 +309,7 @@ describe("normalizeRepoList and formatting", () => {
 	test("a filter is echoed in the header", () => {
 		const list = normalizeRepoList(
 			RepoListWireSchema.parse({ Stats: { Repos: 1 }, Repos: [repoEntry("a/b")] }),
-			{ filter: "b", limit: 50, offset: 0 },
+			{ filter: "b", offset: 0 },
 		);
 
 		expect(formatRepoList(list).split("\n")[0]).toBe('1 repository match "b" — showing 1-1.');
