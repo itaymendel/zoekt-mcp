@@ -33,13 +33,14 @@ export function projectBody(body: unknown): unknown {
 	const { result, repos } = (body ?? {}) as { result?: unknown; repos?: unknown };
 	if (result !== undefined && result !== null) {
 		const out = pick(result, ["Stats", "FileMatches"]);
-		out.Stats = pick(out.Stats, ["FileCount", "MatchCount", "FilesSkipped", "ShardsSkipped"]);
+		if (out.Stats != null)
+			out.Stats = pick(out.Stats, ["FileCount", "MatchCount", "FilesSkipped", "ShardsSkipped"]);
 		out.FileMatches = each(out.FileMatches, projectFileMatch);
 		return { result: out };
 	}
 	if (repos !== undefined && repos !== null) {
 		const out = pick(repos, ["Stats", "Repos"]);
-		out.Stats = pick(out.Stats, ["Repos"]);
+		if (out.Stats != null) out.Stats = pick(out.Stats, ["Repos"]);
 		out.Repos = each(out.Repos, projectRepo);
 		return { repos: out };
 	}

@@ -5,7 +5,8 @@
  *
  * Builds the synthetic repositories from tests/fixtures/zoekt/repos, indexes them with the
  * pinned image, replays CASES against zoekt-webserver and writes one envelope per case plus
- * MANIFEST.json (JSON bodies are projected to the fields src/zoekt/types.ts reads). Output is deterministic: running it twice leaves the working tree unchanged.
+ * MANIFEST.json (JSON bodies are projected to the fields src/zoekt/types.ts reads). Output is
+ * deterministic: running it twice leaves the working tree unchanged.
  */
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

@@ -308,7 +308,7 @@ describe("output cap", () => {
 	});
 });
 
-describe("executeSearch", () => {
+describe("searchTool", () => {
 	const run = (
 		routes: Parameters<typeof mockZoektFetch>[0],
 		input: Record<string, unknown> = {},
