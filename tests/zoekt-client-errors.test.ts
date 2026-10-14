@@ -97,6 +97,13 @@ describe("C1 error bodies", () => {
 		expect(error.message).toBe(`Zoekt /search failed: HTTP ${status} ${statusText}${suffix}`);
 	});
 
+	test("200 with a non-JSON body", async () => {
+		const client = clientWith(stubResponse("oops"));
+		const error = await rejection(client.search({ query: "x" }));
+
+		expect(error.message).toContain("returned a non-JSON response");
+	});
+
 	test("200 JSON of the wrong shape", async () => {
 		const client = clientWith(stubResponse("{}", { contentType: "application/json" }));
 		const error = await rejection(client.search({ query: "x" }));
@@ -143,7 +150,7 @@ describe("C3 abort and network errors", () => {
 			);
 
 			expect(error.message).toMatch(
-				/^Cannot reach Zoekt at http:\/\/zoekt\.test:6070 \((ECONNREFUSED|UND_ERR_SOCKET)\)$/,
+				/^Cannot reach Zoekt at http:\/\/zoekt\.test:6070 \(ECONNREFUSED\)$/,
 			);
 			expect(error.message).not.toContain("secret");
 		},
