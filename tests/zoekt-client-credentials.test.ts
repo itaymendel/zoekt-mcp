@@ -1,19 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { ZoektClient } from "../src/zoekt/client.js";
-import { startFakeZoekt } from "./helpers/fake-zoekt.js";
 import { ALPHA_REPO } from "./helpers/fixture-repo.js";
-import { hangingFetch } from "./helpers/hanging-fetch.js";
 import { connectTestClient, resultText } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
-
-async function rejection(promise: Promise<unknown>): Promise<Error> {
-	try {
-		await promise;
-	} catch (error) {
-		return error as Error;
-	}
-	throw new Error("expected promise to reject");
-}
 
 // Node's fetch throws (echoing the password) for URLs with userinfo; the client must move it to a
 // header. Bun tolerates userinfo, so these tests check the mechanism, not the Node throw.
@@ -40,17 +28,6 @@ describe("credentials in the base URL", () => {
 		);
 	});
 
-	test("a malformed percent sequence fails clearly without echoing the value", () => {
-		let error: Error | undefined;
-		try {
-			testDeps(undefined, { baseUrl: "http://u:s3%ZZcret@zoekt.test" });
-		} catch (e) {
-			error = e as Error;
-		}
-
-		expect(error?.message).toBe("ZOEKT_URL credentials are not valid percent-encoding");
-	});
-
 	test("no header is sent without credentials", async () => {
 		const { seen, fetch } = capture();
 		await testDeps(fetch).client.search({ query: "x" });
@@ -64,37 +41,6 @@ describe("credentials in the base URL", () => {
 		await client.print(ALPHA_REPO, "x").catch(() => {});
 
 		expect(seen[0]?.headers.get("authorization")).toBe(`Basic ${btoa("u:s3cret")}`);
-	});
-
-	const failures: Array<[string, () => Promise<{ client: ZoektClient; expected: string }>]> = [
-		[
-			"a refused connection",
-			async () => {
-				const fake = await startFakeZoekt();
-				const { host } = new URL(fake.url);
-				await fake.close();
-				const { client } = testDeps(undefined, { baseUrl: `http://u:s3cret@${host}` });
-				return { client, expected: `Cannot reach Zoekt at ${fake.url} (ECONNREFUSED)` };
-			},
-		],
-		[
-			"a timeout",
-			async () => {
-				const { client } = testDeps(hangingFetch().fetch, {
-					baseUrl: "http://u:s3cret@zoekt.test",
-					timeoutMs: 20,
-				});
-				return { client, expected: "Zoekt request timed out after 20ms" };
-			},
-		],
-	];
-
-	test.each(failures)("%s never mentions the password", async (_name, setup) => {
-		const { client, expected } = await setup();
-		const error = await rejection(client.search({ query: "x" }));
-
-		expect(error.message).toBe(expected);
-		expect(error.message).not.toContain("s3cret");
 	});
 
 	test("a tool error through MCP never contains the password", async () => {

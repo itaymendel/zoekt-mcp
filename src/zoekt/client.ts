@@ -21,9 +21,10 @@ const MAX_SNIPPET = 200;
 const MAX_ERROR_READ_BYTES = 64 * 1024;
 /** Zoekt's `NOT-INDEXED: <reason>` stub for binary/oversized files is far below this. */
 const NOT_INDEXED_MAX_BYTES = 256;
+const HTML_HINT = "HTML page; is ZOEKT_URL pointing at zoekt-webserver?";
 const utf8 = new TextDecoder();
 
-export interface ZoektClientOptions {
+interface ZoektClientOptions {
 	baseUrl: string;
 	timeoutMs: number;
 	logger: Logger;
@@ -31,11 +32,11 @@ export interface ZoektClientOptions {
 }
 
 /** Per-call options; `signal` cancels the upstream Zoekt request. */
-export interface RequestOptions {
+interface RequestOptions {
 	signal?: AbortSignal;
 }
 
-export interface PrintResult {
+interface PrintResult {
 	bytes: Uint8Array;
 	truncated: boolean;
 }
@@ -43,15 +44,8 @@ export interface PrintResult {
 /** A successful (2xx) answer; non-2xx never leaves `request()`. */
 interface RawResponse {
 	contentType: string;
-	isHtml: boolean;
 	bytes: Uint8Array;
 	truncated: boolean;
-}
-
-/** An error body, decoded once: the full text and the capped form used in messages. */
-interface ErrorBody {
-	text: string;
-	shown: string;
 }
 
 export class ZoektClient {
@@ -67,14 +61,9 @@ export class ZoektClient {
 		// Node's fetch throws (echoing the password) for URLs with userinfo, so move it to a header.
 		const url = new URL(options.baseUrl);
 		if (url.username || url.password) {
-			let user: string;
-			let pass: string;
-			try {
-				user = decodeURIComponent(url.username);
-				pass = decodeURIComponent(url.password);
-			} catch {
-				throw new ZoektError("ZOEKT_URL credentials are not valid percent-encoding");
-			}
+			// config.ts has already rejected bad percent-encoding.
+			const user = decodeURIComponent(url.username);
+			const pass = decodeURIComponent(url.password);
 			this.baseHeaders.Authorization = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
 			url.username = "";
 			url.password = "";
@@ -130,28 +119,9 @@ export class ZoektClient {
 			{ r: repo, f: path, b: branch, format: "raw" },
 			"text/plain",
 			req,
-			{
-				maxBytes,
-				on418: ({ text }) => {
-					const listed = /^ambiguous result: \[(.*)\]/s.exec(text.trim());
-					if (!listed) return undefined;
-					const files = (listed[1] ?? "").split(/\s+/).filter(Boolean);
-					return files.length === 0
-						? new ZoektFileNotFoundError(
-								`File not found in index: ${repo}:${path}${branch ? ` (branch ${branch})` : ""}`,
-							)
-						: new ZoektAmbiguousFileError(
-								`Multiple indexed versions of ${repo}:${path} exist (content differs between branches). Pass a branch.`,
-							);
-				},
-			},
+			maxBytes,
 		);
 
-		if (raw.isHtml) {
-			throw new ZoektError(
-				"Zoekt /print ignored format=raw and returned an HTML page; is ZOEKT_URL pointing at zoekt-webserver?",
-			);
-		}
 		if (!raw.truncated && raw.bytes.length <= NOT_INDEXED_MAX_BYTES) {
 			const stub = notIndexedFromStub(utf8.decode(raw.bytes), repo, path);
 			if (stub) throw stub;
@@ -173,10 +143,6 @@ export class ZoektClient {
 			{ ...params, format: "json" },
 			"application/json",
 			req,
-			{
-				on418: ({ shown }) =>
-					new ZoektError(`Zoekt rejected the request${shown ? `: ${shown}` : ""}`),
-			},
 		);
 
 		const text = utf8.decode(raw.bytes);
@@ -201,15 +167,15 @@ export class ZoektClient {
 
 	/**
 	 * The only `fetch` call site: applies the timeout, merges the caller's signal, reads the body
-	 * and classifies the status. Returns 2xx answers and throws for everything else: `on418` may
-	 * map Zoekt's 418 handler errors to a specific error, otherwise a `ZoektError`.
+	 * and classifies the status. Returns 2xx answers and throws for everything else; Zoekt's 418
+	 * handler errors map to a specific error where the caller can act on them.
 	 */
 	private async request(
 		endpoint: "search" | "print",
 		params: Record<string, string | number | undefined>,
 		accept: string,
 		req: RequestOptions,
-		{ maxBytes, on418 }: { maxBytes?: number; on418?: (body: ErrorBody) => Error | undefined } = {},
+		maxBytes?: number,
 	): Promise<RawResponse> {
 		const search = new URLSearchParams();
 		for (const [key, value] of Object.entries(params)) {
@@ -251,17 +217,31 @@ export class ZoektClient {
 
 		const contentType = response.headers.get("content-type") ?? "";
 		const isHtml = /text\/html/i.test(contentType);
-		if (response.ok) return { contentType, isHtml, ...body };
+		if (response.ok) {
+			if (isHtml) throw new ZoektError(`Zoekt /${endpoint} returned an ${HTML_HINT}`);
+			return { contentType, ...body };
+		}
 
 		const text = utf8.decode(body.bytes);
-		const error: ErrorBody = { text, shown: formatBody(text, isHtml) };
+		const shown = isHtml ? `<${HTML_HINT}>` : capBody(text);
 		this.logger.debug({ status: response.status, body: text }, "Zoekt returned an error");
 		if (response.status === 418) {
-			const mapped = on418?.(error);
-			if (mapped) throw mapped;
+			if (endpoint === "search")
+				throw new ZoektError(`Zoekt rejected the request${shown ? `: ${shown}` : ""}`);
+			const listed = /^ambiguous result: \[(.*)\]/s.exec(text.trim());
+			if (listed) {
+				const { r, f, b } = params;
+				throw (listed[1] ?? "").trim() === ""
+					? new ZoektFileNotFoundError(
+							`File not found in index: ${r}:${f}${b ? ` (branch ${b})` : ""}`,
+						)
+					: new ZoektAmbiguousFileError(
+							`Multiple indexed versions of ${r}:${f} exist (content differs between branches). Pass a branch.`,
+						);
+			}
 		}
 		throw new ZoektError(
-			`Zoekt /${endpoint} failed: HTTP ${response.status} ${response.statusText}${error.shown ? `: ${error.shown}` : ""}`,
+			`Zoekt /${endpoint} failed: HTTP ${response.status} ${response.statusText}${shown ? `: ${shown}` : ""}`,
 		);
 	}
 }
@@ -299,9 +279,8 @@ async function readBody(
 	return { bytes, truncated };
 }
 
-/** Trimmed, capped body for error messages; HTML pages are summarized. */
-function formatBody(body: string, isHtml: boolean): string {
-	if (isHtml) return "<HTML page; is ZOEKT_URL pointing at zoekt-webserver?>";
+/** Trimmed, capped body for error messages. */
+function capBody(body: string): string {
 	const text = body.trim();
 	if (text.length <= MAX_ERROR_BODY) return text;
 	return `${text.slice(0, MAX_ERROR_BODY)}… (truncated, ${text.length} chars total)`;
@@ -312,10 +291,5 @@ function formatBody(body: string, isHtml: boolean): string {
 function notIndexedFromStub(body: string, repo: string, path: string) {
 	const why = /^NOT-INDEXED: (.+)$/.exec(body.trim())?.[1];
 	if (why === undefined) return undefined;
-	const detail = /binary/i.test(why)
-		? "binary content"
-		: /size limit/i.test(why)
-			? "larger than the indexer's size limit"
-			: why;
-	return new ZoektFileNotIndexedError(`File is not indexed by Zoekt (${detail}): ${repo}:${path}`);
+	return new ZoektFileNotIndexedError(`File is not indexed by Zoekt (${why}): ${repo}:${path}`);
 }

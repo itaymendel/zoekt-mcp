@@ -38,7 +38,6 @@ const FileMatchSchema = z.object({
 });
 
 const SearchStatsSchema = z.object({
-	Duration: num,
 	FileCount: num,
 	MatchCount: num,
 	FilesSkipped: num,
@@ -89,7 +88,7 @@ export const ApiResponseSchema = z
 
 export type Match = z.infer<typeof MatchSchema>;
 export type FileMatch = z.infer<typeof FileMatchSchema>;
-export type SearchResult = z.infer<typeof SearchResultSchema>;
+type SearchResult = z.infer<typeof SearchResultSchema>;
 export type RepoListWire = z.infer<typeof RepoListWireSchema>;
 
 /** A `/search` answer known to be the `{result}` branch. */

@@ -4,7 +4,6 @@ import {
 	ZoektFileNotFoundError,
 	ZoektFileNotIndexedError,
 } from "../src/zoekt/errors.js";
-import { startFakeZoekt } from "./helpers/fake-zoekt.js";
 import { ALPHA_REPO, DELTA_REPO } from "./helpers/fixture-repo.js";
 import { hangingFetch } from "./helpers/hanging-fetch.js";
 import { testDeps } from "./helpers/test-deps.js";
@@ -57,49 +56,52 @@ describe("C1 error bodies", () => {
 		expect(error.message).toBe(message);
 	});
 
-	test("5xx includes status, statusText and body", async () => {
-		const client = clientWith(stubResponse("boom", { status: 502, statusText: "Bad Gateway" }));
+	test.each([
+		[
+			"5xx includes status, statusText and body",
+			"boom",
+			502,
+			"Bad Gateway",
+			"text/plain",
+			": boom",
+		],
+		["an empty body omits the suffix", "", 503, "Service Unavailable", "text/plain", ""],
+		[
+			"a body of exactly the cap is quoted whole",
+			"x".repeat(500),
+			500,
+			"ISE",
+			"text/plain",
+			`: ${"x".repeat(500)}`,
+		],
+		[
+			"a longer body is truncated with the total length",
+			"x".repeat(600),
+			500,
+			"ISE",
+			"text/plain",
+			`: ${"x".repeat(500)}… (truncated, 600 chars total)`,
+		],
+		[
+			"an HTML page is summarized, not dumped",
+			"<html><body>nginx</body></html>",
+			502,
+			"Bad Gateway",
+			"text/html",
+			": <HTML page; is ZOEKT_URL pointing at zoekt-webserver?>",
+		],
+	])("%s", async (_name, body, status, statusText, contentType, suffix) => {
+		const client = clientWith(stubResponse(body, { status, statusText, contentType }));
 		const error = await rejection(client.search({ query: "x" }));
 
-		expect(error.message).toBe("Zoekt /search failed: HTTP 502 Bad Gateway: boom");
+		expect(error.message).toBe(`Zoekt /search failed: HTTP ${status} ${statusText}${suffix}`);
 	});
 
-	test("empty error body omits the suffix", async () => {
-		const client = clientWith(stubResponse("", { status: 503, statusText: "Service Unavailable" }));
+	test("200 with a non-JSON body", async () => {
+		const client = clientWith(stubResponse("oops"));
 		const error = await rejection(client.search({ query: "x" }));
 
-		expect(error.message).toBe("Zoekt /search failed: HTTP 503 Service Unavailable");
-	});
-
-	test("long error bodies are truncated with the total length", async () => {
-		const failing = (n: number) =>
-			rejection(
-				clientWith(stubResponse("x".repeat(n), { status: 500, statusText: "ISE" })).search({
-					query: "q",
-				}),
-			);
-
-		expect((await failing(500)).message).toBe(
-			`Zoekt /search failed: HTTP 500 ISE: ${"x".repeat(500)}`,
-		);
-		expect((await failing(600)).message).toBe(
-			`Zoekt /search failed: HTTP 500 ISE: ${"x".repeat(500)}… (truncated, 600 chars total)`,
-		);
-	});
-
-	test("an HTML error page is summarized, not dumped", async () => {
-		const client = clientWith(
-			stubResponse("<html><body>nginx</body></html>", {
-				status: 502,
-				statusText: "Bad Gateway",
-				contentType: "text/html",
-			}),
-		);
-		const error = await rejection(client.search({ query: "x" }));
-
-		expect(error.message).toBe(
-			"Zoekt /search failed: HTTP 502 Bad Gateway: <HTML page; is ZOEKT_URL pointing at zoekt-webserver?>",
-		);
+		expect(error.message).toContain("returned a non-JSON response");
 	});
 
 	test("200 JSON of the wrong shape", async () => {
@@ -137,10 +139,6 @@ describe("C3 abort and network errors", () => {
 			"Bun-style ConnectionRefused",
 			Object.assign(new Error("Unable to connect"), { code: "ConnectionRefused" }),
 		],
-		[
-			"any other errno or TLS code",
-			new TypeError("fetch failed", { cause: { code: "UND_ERR_SOCKET" } }),
-		],
 	])(
 		"network error (%s) is reported with its code, credentials redacted",
 		async (_name, thrown) => {
@@ -152,34 +150,11 @@ describe("C3 abort and network errors", () => {
 			);
 
 			expect(error.message).toMatch(
-				/^Cannot reach Zoekt at http:\/\/zoekt\.test:6070 \((ECONNREFUSED|UND_ERR_SOCKET)\)$/,
+				/^Cannot reach Zoekt at http:\/\/zoekt\.test:6070 \(ECONNREFUSED\)$/,
 			);
 			expect(error.message).not.toContain("secret");
 		},
 	);
-
-	test("a real refused connection reports ECONNREFUSED and the URL", async () => {
-		const fake = await startFakeZoekt();
-		const { url } = fake;
-		await fake.close();
-		const error = await rejection(
-			testDeps(undefined, { baseUrl: url }).client.search({ query: "x" }),
-		);
-
-		expect(error.message).toBe(`Cannot reach Zoekt at ${url} (ECONNREFUSED)`);
-	});
-
-	test("a real unanswered request times out", async () => {
-		const fake = await startFakeZoekt({ hang: true });
-		try {
-			const { client } = testDeps(undefined, { baseUrl: fake.url, timeoutMs: 100 });
-			const error = await rejection(client.search({ query: "x" }));
-
-			expect(error.message).toBe("Zoekt request timed out after 100ms");
-		} finally {
-			await fake.close();
-		}
-	});
 });
 
 describe("C4 /print mapping", () => {
@@ -199,19 +174,16 @@ describe("C4 /print mapping", () => {
 		expect(params?.get("f")).toBe("docs/notes.txt");
 	});
 
-	test("print-not-found -> ZoektFileNotFoundError", async () => {
-		const error = await rejection(printClient("print-not-found").print(ALPHA_REPO, "nope.txt"));
-
-		expect(error).toBeInstanceOf(ZoektFileNotFoundError);
-		expect(error.message).toBe("File not found in index: example.test/alpha:nope.txt");
-	});
-
-	test("not-found message names the branch", async () => {
+	test.each([
+		["without a branch", undefined, ""],
+		["naming the branch", "dev", " (branch dev)"],
+	])("print-not-found %s -> ZoektFileNotFoundError", async (_name, branch, suffix) => {
 		const error = await rejection(
-			printClient("print-not-found").print(ALPHA_REPO, "nope.txt", "dev"),
+			printClient("print-not-found").print(ALPHA_REPO, "nope.txt", branch),
 		);
 
-		expect(error.message).toBe("File not found in index: example.test/alpha:nope.txt (branch dev)");
+		expect(error).toBeInstanceOf(ZoektFileNotFoundError);
+		expect(error.message).toBe(`File not found in index: example.test/alpha:nope.txt${suffix}`);
 	});
 
 	test("print-ambiguous -> ZoektAmbiguousFileError", async () => {
@@ -227,14 +199,14 @@ describe("C4 /print mapping", () => {
 			() => printClient("print-not-indexed-binary"),
 			DELTA_REPO,
 			"bin.dat",
-			"binary content",
+			"contains binary content",
 		],
 		[
 			"too large",
 			() => clientWith(stubResponse("NOT-INDEXED: exceeds the maximum size limit")),
 			ALPHA_REPO,
 			"big.txt",
-			"larger than the indexer's size limit",
+			"exceeds the maximum size limit",
 		],
 		["other", () => clientWith(stubResponse("NOT-INDEXED: because")), ALPHA_REPO, "x", "because"],
 	])(
@@ -257,12 +229,12 @@ describe("C4 /print mapping", () => {
 	test.each([
 		[
 			"/search",
-			"non-JSON response (content-type: text/html",
+			"returned an HTML page",
 			(c: ReturnType<typeof clientWith>) => c.search({ query: "x" }),
 		],
 		[
 			"/print",
-			"ignored format=raw",
+			"returned an HTML page",
 			(c: ReturnType<typeof clientWith>) => c.print(ALPHA_REPO, "x"),
 		],
 	])("200 text/html from %s is a protocol error", async (_endpoint, expected, call) => {

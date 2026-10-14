@@ -268,7 +268,7 @@ describe("read_file errors", () => {
 
 		expect(result.isError).toBe(true);
 		expect(text).toBe(
-			"read_file error: File is not indexed by Zoekt (binary content): example.test/delta:bin.dat. read_file returns indexed text files only.",
+			"read_file error: File is not indexed by Zoekt (contains binary content): example.test/delta:bin.dat. read_file returns indexed text files only.",
 		);
 		expect(text).not.toContain("1:NOT-INDEXED");
 	});
@@ -280,7 +280,7 @@ describe("read_file errors", () => {
 		);
 
 		expect(result.isError).toBe(true);
-		expect(text).toContain("larger than the indexer's size limit): example.test/alpha:big.sql.");
+		expect(text).toContain("exceeds the maximum size limit): example.test/alpha:big.sql.");
 		expect(text).not.toContain("1:NOT-INDEXED");
 	});
 });

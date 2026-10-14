@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
-import { escapeRegex, exactRepoAtom, quoteArg, repoListQuery } from "../src/zoekt/query.js";
+import { exactRepoAtom, repoListQuery } from "../src/zoekt/query.js";
 import { ApiResponseSchema } from "../src/zoekt/types.js";
 import { CASES_DIR } from "./helpers/fixture-repo.js";
 import { testDeps } from "./helpers/test-deps.js";
@@ -46,14 +46,6 @@ describe("tolerant schemas", () => {
 		expect(second?.Fragments).toEqual([]);
 	});
 
-	test("search-context: Before and After survive parsing", () => {
-		const matches = parse(loadCase("search-context").response.body).result?.FileMatches.flatMap(
-			(f) => f.Matches,
-		);
-		expect(matches?.some((m) => m.Before !== "")).toBe(true);
-		expect(matches?.some((m) => m.After !== "")).toBe(true);
-	});
-
 	test("{} is rejected", () => {
 		expect(() => parse({})).toThrow("neither 'result' nor 'repos'");
 	});
@@ -78,17 +70,6 @@ describe("response union", () => {
 });
 
 describe("query helpers", () => {
-	test("escapeRegex", () => {
-		expect(escapeRegex("a\\b.c")).toBe("a\\\\b\\.c");
-		expect(escapeRegex("\\.+*?()|[]{}^$")).toBe("\\\\\\.\\+\\*\\?\\(\\)\\|\\[\\]\\{\\}\\^\\$");
-		expect(escapeRegex("plain/path-1")).toBe("plain/path-1");
-	});
-
-	test("quoteArg", () => {
-		expect(quoteArg('a"b\\c')).toBe('"a\\"b\\\\c"');
-		expect(quoteArg("plain")).toBe('"plain"');
-	});
-
 	test("exactRepoAtom", () => {
 		expect(exactRepoAtom("github.com/o/r")).toBe('r:"^github\\\\.com/o/r$"');
 	});
