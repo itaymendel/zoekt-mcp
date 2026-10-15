@@ -4,13 +4,14 @@ export function getErrorMessage(error: unknown): string {
 
 export const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
 
-/** The URL with any `user:password@` replaced by `***`, safe to log or show. */
+/** The URL with any `user:password@` and query string replaced by `***`, safe to log or show. */
 export function redactUrl(url: string): string {
 	let out = url;
 	try {
 		const u = new URL(url);
 		if (u.username) u.username = "***";
 		if (u.password) u.password = "***";
+		if (u.search) u.search = "?***";
 		out = u.href.replace(/\/$/, "");
 	} catch {
 		// unparsable: the pattern below still hides anything that looks like userinfo

@@ -45,8 +45,12 @@ describe("configuration errors", () => {
 		expect(stderr).toContain(message);
 	});
 
-	test("a rejected URL never echoes its credentials", async () => {
-		for (const bad of ["ftp://admin:s3cret@host", "admin:s3cret@host"]) {
+	test("a rejected URL never echoes its credentials or query secrets", async () => {
+		for (const bad of [
+			"ftp://admin:s3cret@host",
+			"admin:s3cret@host",
+			"ftp://host/?token=s3cret",
+		]) {
 			const flag = await run(["--url", bad]);
 			const env = await run([], { ZOEKT_URL: bad });
 
