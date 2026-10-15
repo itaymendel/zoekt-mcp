@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { redactUrl } from "./utils.js";
 
@@ -78,15 +77,15 @@ const SOURCES: Record<RawKey, { flag?: string; env: string }> = {
 	zoektUrl: { flag: "--url", env: "ZOEKT_URL" },
 	mcpTransport: { flag: "--transport", env: "MCP_TRANSPORT" },
 	mcpPort: { flag: "--port", env: "MCP_PORT" },
-	mcpHost: { flag: "--host", env: "MCP_HOST" },
-	logLevel: { flag: "--log-level", env: "LOG_LEVEL" },
+	mcpHost: { env: "MCP_HOST" },
+	logLevel: { env: "LOG_LEVEL" },
 	mcpAllowedHosts: { env: "MCP_ALLOWED_HOSTS" },
 };
 
 export type LogLevel = z.infer<typeof LogLevelSchema>;
 export type Transport = z.infer<typeof TransportSchema>;
 type Config = z.output<typeof ConfigSchema> & {
-	/** Resolved from MCP_AUTH_TOKEN or MCP_AUTH_TOKEN_FILE; undefined when auth is off. */
+	/** From MCP_AUTH_TOKEN; undefined when auth is off. */
 	mcpAuthToken?: string;
 };
 
@@ -94,8 +93,6 @@ interface CliArgs {
 	zoektUrl?: string;
 	mcpTransport?: string;
 	mcpPort?: string;
-	mcpHost?: string;
-	logLevel?: string;
 }
 
 interface ConfigIssue {
@@ -165,8 +162,7 @@ export function loadConfig(
 			{
 				...SOURCES.mcpHost,
 				message:
-					"refusing to listen on a non-loopback address without authentication; set MCP_AUTH_TOKEN " +
-					"(or MCP_AUTH_TOKEN_FILE)",
+					"refusing to listen on a non-loopback address without authentication; set MCP_AUTH_TOKEN",
 				received: config.mcpHost,
 			},
 		]);
@@ -178,32 +174,12 @@ function resolveToken(
 	env: Record<string, string | undefined>,
 	issues: ConfigIssue[],
 ): string | undefined {
-	const inline = clean(env.MCP_AUTH_TOKEN);
-	const file = clean(env.MCP_AUTH_TOKEN_FILE);
-
-	if (inline && file) {
-		issues.push({
-			env: "MCP_AUTH_TOKEN / MCP_AUTH_TOKEN_FILE",
-			message: "are mutually exclusive; set only one",
-		});
-		return undefined;
-	}
-
-	let token = inline;
-	let source = "MCP_AUTH_TOKEN";
-	if (file) {
-		source = "MCP_AUTH_TOKEN_FILE";
-		try {
-			token = readFileSync(file, "utf8").trim();
-		} catch (error) {
-			const code = (error as NodeJS.ErrnoException).code ?? "unreadable";
-			issues.push({ env: source, message: `could not read token file (${code})`, received: file });
-			return undefined;
-		}
-	}
-
+	const token = clean(env.MCP_AUTH_TOKEN);
 	if (token !== undefined && token.length < MIN_TOKEN_LENGTH) {
-		issues.push({ env: source, message: `token must be at least ${MIN_TOKEN_LENGTH} characters` });
+		issues.push({
+			env: "MCP_AUTH_TOKEN",
+			message: `token must be at least ${MIN_TOKEN_LENGTH} characters`,
+		});
 		return undefined;
 	}
 	return token;

@@ -4,9 +4,6 @@ import { repoListQuery } from "../zoekt/query.js";
 import type { RepoListWire } from "../zoekt/types.js";
 import type { Tool } from "./tool.js";
 
-/** Zoekt has no offset, so a page is fetched as the first `offset + limit` repos and sliced. */
-const MAX_WINDOW = 5000;
-
 const inputSchema = z.object({
 	filter: z
 		.string()
@@ -22,30 +19,26 @@ const inputSchema = z.object({
 		.max(200)
 		.default(50)
 		.describe("Maximum repositories to return (1-200)"),
-	offset: z.number().int().min(0).default(0).describe("Repositories to skip, for paging"),
 });
 
 const description = `List indexed repositories, one line each: name, branches (branch@sha), file count, size and index date. Sorted by name.
 
-\`filter\` is an unanchored regex on the repository name, case-insensitive by default (start it with \`(?-i)\` for case-sensitive). Page with \`limit\` and \`offset\`.
+\`filter\` is an unanchored regex on the repository name, case-insensitive by default (start it with \`(?-i)\` for case-sensitive).
 
 Use the exact names as \`repo\` in read_file and as \`r:"^name$"\` in search.
 
 ### Examples
 - \`{}\`
 - \`{ "filter": "^github\\\\.com/myorg/" }\`
-- \`{ "limit": 50, "offset": 50 }\``;
+- \`{ "limit": 100 }\``;
 
 const MAX_BRANCHES_SHOWN = 3;
 
-/** One line per repository, plus a header and (when paged) a footer. */
-export function formatRepoList(
-	wire: RepoListWire,
-	{ filter, offset }: { filter?: string; offset: number },
-): string {
-	const repos = wire.Repos.slice(offset);
-	const total = wire.Stats?.Repos || wire.Repos.length;
-	if (repos.length === 0 && total === 0) {
+/** One line per repository, plus a header and (when cut at `limit`) a footer. */
+export function formatRepoList(wire: RepoListWire, { filter }: { filter?: string }): string {
+	const repos = wire.Repos;
+	const total = wire.Stats?.Repos || repos.length;
+	if (repos.length === 0) {
 		return filter
 			? `No repositories match "${filter}". Filters are regexes on the repository name, case-insensitive unless prefixed (?-i).`
 			: "No repositories match. Zoekt has no indexed repositories.";
@@ -53,16 +46,9 @@ export function formatRepoList(
 	const subject = `${total} ${plural(total, "repository", "repositories")} ${
 		filter ? `match "${filter}"` : "indexed"
 	}`;
-	if (repos.length === 0) return `${subject}, but offset=${offset} is past the end.`;
-
-	const first = offset + 1;
-	const last = offset + repos.length;
-	const parts = [`${subject} — showing ${first}-${last}.`, "", ...repos.map(formatRepoLine)];
-	if (last < total) {
-		parts.push(
-			"",
-			`Showing ${first}-${last} of ${total}. Use offset=${last} for the next page, or narrow the filter.`,
-		);
+	const parts = [`${subject}.`, "", ...repos.map(formatRepoLine)];
+	if (repos.length < total) {
+		parts.push("", `Showing ${repos.length} of ${total}. Narrow with \`filter\`.`);
 	}
 	return parts.join("\n");
 }
@@ -106,15 +92,8 @@ export const listReposTool: Tool<typeof inputSchema> = {
 	title: "List indexed repositories",
 	description,
 	inputSchema,
-	async execute(client, { filter, limit, offset }, ctx) {
-		if (offset + limit > MAX_WINDOW) {
-			throw new Error(
-				`offset + limit must be at most ${MAX_WINDOW} (got ${offset + limit}); narrow the filter instead of paging that deep.`,
-			);
-		}
-		const wire = await client.listRepos(repoListQuery(filter), offset + limit, {
-			signal: ctx.signal,
-		});
-		return formatRepoList(wire, { filter, offset });
+	async execute(client, { filter, limit }, ctx) {
+		const wire = await client.listRepos(repoListQuery(filter), limit, { signal: ctx.signal });
+		return formatRepoList(wire, { filter });
 	},
 };

@@ -25,7 +25,6 @@ const zfile = (repo: string, path: string, matches: unknown[], branches = ["HEAD
 
 interface RunOptions {
 	query?: string;
-	contextLines?: number;
 	maxFiles?: number;
 	maxChars?: number;
 }
@@ -33,7 +32,6 @@ interface RunOptions {
 function render(response: ReturnType<typeof stub>, o: RunOptions = {}): string {
 	return formatSearch(response, {
 		query: o.query ?? "q",
-		contextLines: o.contextLines ?? 2,
 		maxFiles: o.maxFiles ?? 20,
 		maxChars: o.maxChars ?? DEFAULT_OUTPUT_CHARS,
 	});
@@ -54,13 +52,17 @@ describe("rows", () => {
 			],
 		});
 
-		expect(rowsOf(render(crlf, { contextLines: 0 }))).toEqual(["1:x"]);
+		expect(rowsOf(render(crlf))).toEqual(["1:x"]);
 	});
 
-	test("contextLines=0 yields no context rows", () => {
-		const text = render(loadSearchResponse("search-context"), { contextLines: 0 });
+	test("keeps at most 2 context lines on each side of a match", () => {
+		const response = stub({
+			FileMatches: [
+				zfile("r", "a", [{ ...matchAt(5), Before: "b1\nb2\nb3\n", After: "a1\na2\na3\n" }]),
+			],
+		});
 
-		expect(rowsOf(text)).toEqual(["2:needle one", "4:needle two", "5:needle three"]);
+		expect(rowsOf(render(response))).toEqual(["3-b2", "4-b3", "5:line 5", "6-a1", "7-a2"]);
 	});
 
 	test("null Before/After at file start and end are handled", () => {
@@ -86,8 +88,8 @@ describe("rows", () => {
 		expect(rowsOf(render(result))).toEqual(["1:a", "2-b", "3:c"]);
 	});
 
-	test("omits HEAD branch", () => {
-		const text = render(multi(), { contextLines: 0 });
+	test("omits the branch list when it is exactly HEAD", () => {
+		const text = render(multi());
 
 		expect(text).toContain("## src/handler.go\n"); // beta, HEAD only
 		expect(text).not.toContain("(branches: HEAD");
@@ -101,11 +103,11 @@ describe("rows", () => {
 			FileMatches: [zfile("r", "a", [{ ...matchAt(3), Before: "\n" }])],
 		});
 
-		expect(rowsOf(render(response, { contextLines: 1 }))).toEqual(["2-", "3:line 3"]);
+		expect(rowsOf(render(response))).toEqual(["2-", "3:line 3"]);
 	});
 
-	test("shows the branch list when files differ, in the stored order", () => {
-		const text = render(multi(), { contextLines: 0 });
+	test("shows the branch list when it is not just HEAD, in the stored order", () => {
+		const text = render(multi());
 
 		expect(text).toContain("## src/handler.go  (branches: main, main-old, feature)");
 	});
@@ -118,9 +120,7 @@ describe("rows", () => {
 			],
 		});
 
-		expect(render(response, { contextLines: 0 })).toMatch(
-			/\n---\n2 files, 2 matching lines, 1 filename match\.$/,
-		);
+		expect(render(response)).toMatch(/\n---\n2 files, 2 matching lines, 1 filename match\.$/);
 		expect(render(loadSearchResponse("search-file-only"))).toMatch(
 			/\n---\n1 file, 1 filename match\.$/,
 		);
@@ -130,18 +130,26 @@ describe("rows", () => {
 		expect(render(stub({}), { query: "needle" })).toBe("No matches for `needle`.");
 	});
 
-	test("omits branch list when uniform across results", () => {
-		const text = render(loadSearchResponse("search-context"));
+	test("shows the branch list for every non-HEAD file, even when all files agree", () => {
+		const response = stub({
+			FileMatches: [
+				zfile("r", "a", [matchAt(1)], ["main"]),
+				zfile("r", "b", [matchAt(1)], ["main"]),
+				zfile("r", "c", [matchAt(1)], ["HEAD", "dev"]),
+			],
+		});
+		const text = render(response);
 
-		expect(text).not.toContain("branches");
-		expect(text).toContain("## docs/notes.txt\n");
+		expect(text).toContain("## a  (branches: main)\n");
+		expect(text).toContain("## b  (branches: main)\n");
+		expect(text).toContain("## c  (branches: HEAD, dev)\n");
 	});
 
 	test("non-adjacent groups are separated by --, adjacent rows are not", () => {
 		const response = stub({
 			FileMatches: [zfile("r", "a", [{ ...matchAt(10), After: "ctx\n" }, matchAt(30)])],
 		});
-		const rows = render(response, { contextLines: 1 }).split("\n");
+		const rows = render(response).split("\n");
 
 		expect(rows.slice(1, 6)).toEqual(["## a", "10:line 10", "11-ctx", "--", "30:line 30"]);
 	});
@@ -149,7 +157,9 @@ describe("rows", () => {
 	test("filename-only", () => {
 		const text = render(loadSearchResponse("search-file-only"));
 
-		expect(text).toContain("# example.test/alpha\n## docs/notes.txt  [filename match]\n");
+		expect(text).toContain(
+			"# example.test/alpha\n## docs/notes.txt  [filename match]  (branches: main, main-old, feature)\n",
+		);
 		expect(text).not.toMatch(/^\d+[:-]/m);
 	});
 
@@ -210,13 +220,13 @@ describe("footer", () => {
 	const two = (Stats?: object, o: RunOptions = {}) =>
 		render(
 			stub({ Stats, FileMatches: [zfile("r", "a", [matchAt(1)]), zfile("r", "b", [matchAt(1)])] }),
-			{ contextLines: 0, ...o },
+			{ ...o },
 		);
 
 	const cases: Array<[string, () => string, string]> = [
 		[
 			"maxFiles cut",
-			() => render(loadSearchResponse("search-many-files"), { contextLines: 0, maxFiles: 3 }),
+			() => render(loadSearchResponse("search-many-files"), { maxFiles: 3 }),
 			`Showing 3 of 8 files; ${FOOTER}`,
 		],
 		[
@@ -253,7 +263,7 @@ describe("output cap", () => {
 		});
 
 	test("the first file is always rendered, hard-clipped, even at maxChars=50", () => {
-		const text = render(manyFiles(30, 40), { maxChars: 50, contextLines: 0 });
+		const text = render(manyFiles(30, 40), { maxChars: 50 });
 
 		expect(text).toContain("## dir/file0.txt");
 		expect(text).toContain("\n[output truncated]\n\n---\nShowing 1 of 30 files;");
@@ -271,10 +281,7 @@ describe("output cap", () => {
 			),
 		});
 
-		expectGolden(
-			"search-truncated-budget.txt",
-			render(response, { contextLines: 0, maxChars: 1500 }),
-		);
+		expectGolden("search-truncated-budget.txt", render(response, { maxChars: 1500 }));
 	});
 });
 
@@ -290,11 +297,8 @@ describe("searchTool", () => {
 		return { fetch, result };
 	};
 
-	test("sends ctx from contextLines and num = maxFiles + 1", async () => {
-		const { fetch, result } = run(
-			{ "/search": "search-context" },
-			{ query: "needle", contextLines: 2 },
-		);
+	test("sends ctx=2 and num = maxFiles + 1", async () => {
+		const { fetch, result } = run({ "/search": "search-context" }, { query: "needle" });
 		const text = await result;
 
 		const params = fetch.requests[0]?.searchParams;
@@ -304,10 +308,7 @@ describe("searchTool", () => {
 	});
 
 	test("sym: query is one plain /search request", async () => {
-		const { fetch, result } = run(
-			{ "/search": "search-sym" },
-			{ query: "sym:lookup", contextLines: 0 },
-		);
+		const { fetch, result } = run({ "/search": "search-sym" }, { query: "sym:lookup" });
 		const text = await result;
 
 		expect(fetch.requests.map((u) => u.pathname)).toEqual(["/search"]);

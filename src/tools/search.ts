@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_OUTPUT_CHARS, formatSearch } from "../search-format.js";
+import { CONTEXT_LINES, DEFAULT_OUTPUT_CHARS, formatSearch } from "../search-format.js";
 import type { Tool } from "./tool.js";
 
 const inputSchema = z.object({
@@ -11,13 +11,6 @@ const inputSchema = z.object({
 		.max(100)
 		.default(20)
 		.describe("Maximum number of files to return (1-100)"),
-	contextLines: z
-		.number()
-		.int()
-		.min(0)
-		.max(10)
-		.default(2)
-		.describe("Number of context lines around each match (0-10)"),
 });
 
 const description = `Search code with Zoekt. Matches are grouped by repo and file with line numbers; pass the printed repo and path to read_file.
@@ -40,22 +33,21 @@ const description = `Search code with Zoekt. Matches are grouped by repo and fil
 - \`"v1\\\\.2" lang:go\`
 
 ## Output
-Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context; \`--\` separates non-adjacent groups. Results are bounded by maxFiles and an output size cap (\`[output truncated]\`); the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
+Repos appear as \`# <repo>\` and files as \`## <path>\`. A file indexed on branches other than just HEAD shows \`(branches: ...)\` after its path. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context (2 lines each side of a match); \`--\` separates non-adjacent groups. Results are bounded by maxFiles and an output size cap (\`[output truncated]\`); the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
 
 export const searchTool: Tool<typeof inputSchema> = {
 	name: "search",
 	title: "Search code",
 	description,
 	inputSchema,
-	async execute(client, { query, maxFiles, contextLines }, ctx) {
+	async execute(client, { query, maxFiles }, ctx) {
 		// Ask for one file more than shown, so Zoekt's own cap cannot hide that there were more.
 		const response = await client.search(
-			{ query, num: maxFiles + 1, contextLines },
+			{ query, num: maxFiles + 1, contextLines: CONTEXT_LINES },
 			{ signal: ctx.signal },
 		);
 		return formatSearch(response, {
 			query,
-			contextLines,
 			maxFiles,
 			maxChars: DEFAULT_OUTPUT_CHARS,
 		});

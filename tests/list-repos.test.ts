@@ -154,60 +154,23 @@ describe("list_repos output", () => {
 	});
 });
 
-describe("list_repos paging", () => {
+describe("list_repos limit", () => {
 	const names = Array.from({ length: 6 }, (_, i) => `org/repo-${i + 1}`);
 
-	test("{limit:2, offset:2} fetches num=4 and shows rows 3-4", async () => {
-		const { fetch, text } = await callListRepos(
-			{ "/search": stubRepos(names) },
-			{ limit: 2, offset: 2 },
-		);
+	test("a list cut at limit says so and points at filter", async () => {
+		const { fetch, text } = await callListRepos({ "/search": stubRepos(names) }, { limit: 2 });
 		const rows = text.split("\n").filter((l) => l.startsWith("org/"));
 
-		expect(fetch.requests[0]?.searchParams.get("num")).toBe("4");
-		expect(rows.map((r) => r.split("  ")[0])).toEqual(["org/repo-3", "org/repo-4"]);
-		expect(text).toContain("6 repositories indexed — showing 3-4.");
-		expect(text).toContain(
-			"Showing 3-4 of 6. Use offset=4 for the next page, or narrow the filter.",
-		);
+		expect(fetch.requests[0]?.searchParams.get("num")).toBe("2");
+		expect(rows.map((r) => r.split("  ")[0])).toEqual(["org/repo-1", "org/repo-2"]);
+		expect(text).toContain("6 repositories indexed.");
+		expect(text).toEndWith("Showing 2 of 6. Narrow with `filter`.");
 	});
 
-	test("the last page has no footer", async () => {
-		const { text } = await callListRepos({ "/search": stubRepos(names) }, { limit: 2, offset: 4 });
+	test("a complete list has no footer", async () => {
+		const { text } = await callListRepos({ "/search": stubRepos(names) }, { limit: 6 });
 
-		expect(text).toContain("showing 5-6.");
-		expect(text).not.toContain("Use offset=");
-	});
-
-	test("an offset past the end says so", async () => {
-		const { result, text } = await callListRepos(
-			{ "/search": stubRepos(names) },
-			{ limit: 2, offset: 10 },
-		);
-
-		expect(result.isError).toBeFalsy();
-		expect(text).toContain("offset=10 is past the end");
-	});
-
-	test("offset+limit == 5000 is allowed", async () => {
-		const { result, fetch } = await callListRepos(
-			{ "/search": stubRepos(names) },
-			{ limit: 200, offset: 4800 },
-		);
-
-		expect(result.isError).toBeFalsy();
-		expect(fetch.requests[0]?.searchParams.get("num")).toBe("5000");
-	});
-
-	test("offset+limit > 5000 is rejected without calling Zoekt", async () => {
-		const { result, text, fetch } = await callListRepos(
-			{ "/search": stubRepos(names) },
-			{ limit: 200, offset: 4801 },
-		);
-
-		expect(result.isError).toBe(true);
-		expect(text).toContain("offset + limit must be at most 5000");
-		expect(fetch.requests).toHaveLength(0);
+		expect(text).not.toContain("Narrow with");
 	});
 });
 
@@ -216,7 +179,7 @@ describe("formatRepoList", () => {
 		const wire = RepoListWireSchema.parse({
 			Repos: [repoEntry("zero", { IndexTime: "0001-01-01T00:00:00Z" }), repoEntry("real")],
 		});
-		const lines = formatRepoList(wire, { offset: 0 }).split("\n");
+		const lines = formatRepoList(wire, {}).split("\n");
 
 		expect(lines).toContain("zero  HEAD@aaaaaaa  3 files  2.0 KiB");
 		expect(lines).toContain("real  HEAD@aaaaaaa  3 files  2.0 KiB  indexed 2025-03-04");
@@ -225,9 +188,7 @@ describe("formatRepoList", () => {
 	test("a filter is echoed in the header", () => {
 		const wire = RepoListWireSchema.parse({ Stats: { Repos: 1 }, Repos: [repoEntry("a/b")] });
 
-		expect(formatRepoList(wire, { filter: "b", offset: 0 }).split("\n")[0]).toBe(
-			'1 repository match "b" — showing 1-1.',
-		);
+		expect(formatRepoList(wire, { filter: "b" }).split("\n")[0]).toBe('1 repository match "b".');
 	});
 });
 

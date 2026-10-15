@@ -79,15 +79,15 @@ The HTTP transport is stateless Streamable HTTP on `POST /mcp`. `GET /healthz` r
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
-| `search` | Search code with Zoekt query syntax | `query`, `maxFiles` (1-100, default 20), `contextLines` (0-10, default 2) |
-| `list_repos` | List indexed repositories | `filter` (regex on the name, case-insensitive), `limit` (1-200, default 50), `offset` |
+| `search` | Search code with Zoekt query syntax | `query`, `maxFiles` (1-100, default 20) |
+| `list_repos` | List indexed repositories | `filter` (regex on the name, case-insensitive), `limit` (1-200, default 50) |
 | `read_file` | Read a file as numbered lines | `repo`, `path`, `branch`, `startLine`, `endLine` (500 lines by default, 2000 at most) |
 
 All three are read-only and closed-world; clients that honour tool annotations can run them without confirmation. The server also sends short `instructions` describing the `list_repos` -> `search` -> `read_file` workflow.
 
 ## Security
 
-HTTP binds to `127.0.0.1`; any other bind needs `MCP_AUTH_TOKEN` (or `MCP_AUTH_TOKEN_FILE`). `/mcp` validates Host and Origin (loopback always allowed; add hostnames with `MCP_ALLOWED_HOSTS`), caps bodies at 1 MiB, and requires `Authorization: Bearer <token>` when a token is set. `/healthz` is exempt.
+HTTP binds to `127.0.0.1`; any other bind needs `MCP_AUTH_TOKEN`. `/mcp` validates Host and Origin (loopback always allowed; add hostnames with `MCP_ALLOWED_HOSTS`), caps bodies at 1 MiB, and requires `Authorization: Bearer <token>` when a token is set. `/healthz` is exempt.
 Credentials in `ZOEKT_URL` are sent as Basic auth and never logged. See the table below for every setting.
 
 ## Configuration
@@ -99,11 +99,10 @@ CLI flags take precedence over environment variables. Empty values count as unse
 | `--url` | `ZOEKT_URL` | required | Zoekt webserver URL (`http://` or `https://`) |
 | `--transport` | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `--port` | `MCP_PORT` | `3000` | HTTP port |
-| `--host` | `MCP_HOST` | `127.0.0.1` | HTTP bind address |
-| `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` (logs go to stderr) |
+| | `MCP_HOST` | `127.0.0.1` | HTTP bind address |
+| | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` (logs go to stderr) |
 | | `MCP_ALLOWED_HOSTS` | none | Extra `Host` hostnames, comma-separated |
 | | `MCP_AUTH_TOKEN` | none | Bearer token for `/mcp` (at least 16 characters) |
-| | `MCP_AUTH_TOKEN_FILE` | none | Read the token from a file (exclusive with `MCP_AUTH_TOKEN`) |
 
 ## Troubleshooting
 

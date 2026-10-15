@@ -201,11 +201,10 @@ export class ZoektClient {
 			if ((error as { name?: unknown } | null)?.name === "TimeoutError") {
 				throw new ZoektError(`Zoekt request timed out after ${this.timeoutMs}ms`, { cause: error });
 			}
-			// undici puts the errno on `cause`; Bun reports `ConnectionRefused` for ECONNREFUSED.
+			// undici puts the errno on `cause`.
 			const code = [error, (error as { cause?: unknown } | null)?.cause]
 				.map((e) => (e as { code?: unknown } | null)?.code)
-				.find((c): c is string => typeof c === "string")
-				?.replace("ConnectionRefused", "ECONNREFUSED");
+				.find((c): c is string => typeof c === "string");
 			if (code) {
 				throw new ZoektError(`Cannot reach Zoekt at ${redactUrl(this.baseUrl)} (${code})`, {
 					cause: error,

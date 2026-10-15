@@ -21,14 +21,12 @@ Options:
   --url <url>          Zoekt webserver URL (required, or set ZOEKT_URL)
   --transport <mode>   Transport: "stdio" (default) or "http"
   --port <number>      HTTP port (default: 3000)
-  --host <address>     HTTP bind address (default: 127.0.0.1)
-  --log-level <level>  debug, info, warn or error (default: info)
   -h, --help           Show this help
   -v, --version        Show the version
 
 Every option also has an environment variable (--url is ZOEKT_URL, and so on).
-HTTP security settings are environment-only: MCP_AUTH_TOKEN, MCP_AUTH_TOKEN_FILE and
-MCP_ALLOWED_HOSTS.
+Environment-only settings: MCP_HOST (HTTP bind address, default 127.0.0.1), LOG_LEVEL (debug,
+info, warn or error; default info), MCP_AUTH_TOKEN and MCP_ALLOWED_HOSTS.
 Exit code 2 means a usage or configuration error.
 
 Example: zoekt-mcp --url http://localhost:6070
@@ -41,8 +39,6 @@ function parseCliArgs(): Record<string, string | undefined> {
 			url: { type: "string" },
 			transport: { type: "string" },
 			port: { type: "string" },
-			host: { type: "string" },
-			"log-level": { type: "string" },
 			help: { type: "boolean", short: "h" },
 			version: { type: "boolean", short: "v" },
 		},
@@ -63,8 +59,6 @@ function parseCliArgs(): Record<string, string | undefined> {
 		zoektUrl: values.url,
 		mcpTransport: values.transport,
 		mcpPort: values.port,
-		mcpHost: values.host,
-		logLevel: values["log-level"],
 	};
 }
 

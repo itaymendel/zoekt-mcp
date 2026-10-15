@@ -133,28 +133,19 @@ describe("C3 abort and network errors", () => {
 		expect(error.message).toBe("Zoekt request timed out after 30ms");
 	});
 
-	test.each([
-		["undici-style cause", new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } })],
-		[
-			"Bun-style ConnectionRefused",
-			Object.assign(new Error("Unable to connect"), { code: "ConnectionRefused" }),
-		],
-	])(
-		"network error (%s) is reported with its code, credentials redacted",
-		async (_name, thrown) => {
-			const fail = (async () => {
-				throw thrown;
-			}) as unknown as typeof fetch;
-			const error = await rejection(
-				clientWith(fail, 5000, "http://user:secret@zoekt.test:6070").search({ query: "x" }),
-			);
+	test("network error is reported with its code, credentials redacted", async () => {
+		const fail = (async () => {
+			throw new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } });
+		}) as unknown as typeof fetch;
+		const error = await rejection(
+			clientWith(fail, 5000, "http://user:secret@zoekt.test:6070").search({ query: "x" }),
+		);
 
-			expect(error.message).toMatch(
-				/^Cannot reach Zoekt at http:\/\/zoekt\.test:6070 \(ECONNREFUSED\)$/,
-			);
-			expect(error.message).not.toContain("secret");
-		},
-	);
+		expect(error.message).toMatch(
+			/^Cannot reach Zoekt at http:\/\/zoekt\.test:6070 \(ECONNREFUSED\)$/,
+		);
+		expect(error.message).not.toContain("secret");
+	});
 });
 
 describe("C4 /print mapping", () => {

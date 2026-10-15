@@ -1,7 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 
 const URL_ENV = { ZOEKT_URL: "http://x" };
@@ -96,45 +93,11 @@ describe("HTTP security keys", () => {
 		expect(ok.mcpAllowedHosts).toEqual(["a.example", "[::1]"]);
 	});
 
-	describe("token", () => {
-		let dir: string;
-		beforeEach(() => {
-			dir = mkdtempSync(join(tmpdir(), "zoekt-mcp-token-"));
-		});
-		afterEach(() => rmSync(dir, { recursive: true, force: true }));
-
-		test("MCP_AUTH_TOKEN_FILE is read and trimmed", () => {
-			const file = join(dir, "token");
-			writeFileSync(file, `  ${TOKEN}\n`);
-			expect(loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN_FILE: file }).mcpAuthToken).toBe(TOKEN);
-		});
-
-		test("token < 16 chars is a config error", () => {
-			const text = errorOf(() => loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN: "short" }));
-			expect(issueCount(text)).toBe(1);
-			expect(text).toContain("MCP_AUTH_TOKEN: token must be at least 16 characters");
-			expect(text).not.toContain("short");
-
-			const file = join(dir, "short");
-			writeFileSync(file, "short\n");
-			expect(errorOf(() => loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN_FILE: file }))).toContain(
-				"MCP_AUTH_TOKEN_FILE: token must be at least",
-			);
-		});
-
-		test("both token vars set is a config error", () => {
-			const text = errorOf(() =>
-				loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN: TOKEN, MCP_AUTH_TOKEN_FILE: join(dir, "t") }),
-			);
-			expect(text).toContain("mutually exclusive");
-		});
-
-		test("unreadable token file is a config error", () => {
-			const text = errorOf(() =>
-				loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN_FILE: join(dir, "missing") }),
-			);
-			expect(text).toContain("could not read token file");
-		});
+	test("token < 16 chars is a config error", () => {
+		const text = errorOf(() => loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN: "short" }));
+		expect(issueCount(text)).toBe(1);
+		expect(text).toContain("MCP_AUTH_TOKEN: token must be at least 16 characters");
+		expect(text).not.toContain("short");
 	});
 
 	describe("non-loopback bind", () => {
