@@ -1,6 +1,7 @@
 import { Command, InvalidArgumentError, Option } from "commander";
 import { z } from "zod";
 import pkg from "../package.json";
+import { redactUrl } from "./utils.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -24,16 +25,6 @@ export interface Config {
 	logLevel: LogLevel;
 }
 
-function parseZoektUrl(value: string): string {
-	const url = URL.parse(value);
-	if (url?.protocol !== "http:" && url?.protocol !== "https:") {
-		throw new InvalidArgumentError(
-			"must be an http:// or https:// URL, e.g. http://localhost:6070",
-		);
-	}
-	return value;
-}
-
 function parsePort(value: string): number {
 	const port = Number(value);
 	if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -49,10 +40,7 @@ export function loadConfig(argv: string[] = process.argv): Config {
 		.description("MCP server for Zoekt code search")
 		.version(`${pkg.name} ${pkg.version}`, "-v, --version")
 		.addOption(
-			new Option("--url <url>", "Zoekt webserver URL")
-				.env("ZOEKT_URL")
-				.argParser(parseZoektUrl)
-				.makeOptionMandatory(),
+			new Option("--url <url>", "Zoekt webserver URL").env("ZOEKT_URL").makeOptionMandatory(),
 		)
 		.addOption(
 			new Option("--transport <mode>", "MCP transport")
@@ -69,6 +57,14 @@ export function loadConfig(argv: string[] = process.argv): Config {
 		)
 		.parse(argv);
 	const opts = program.opts<{ url: string; transport: Config["transport"]; port: number }>();
+
+	// Checked here, not in an argParser: Commander would echo the rejected value, credentials included.
+	const protocol = URL.parse(opts.url)?.protocol;
+	if (protocol !== "http:" && protocol !== "https:") {
+		program.error(
+			`error: --url / ZOEKT_URL must be an http:// or https:// URL, e.g. http://localhost:6070 (got "${redactUrl(opts.url)}")`,
+		);
+	}
 
 	const env = EnvSchema.safeParse(process.env);
 	if (!env.success) program.error(z.prettifyError(env.error));

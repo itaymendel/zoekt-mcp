@@ -45,6 +45,19 @@ describe("configuration errors", () => {
 		expect(stderr).toContain(message);
 	});
 
+	test("a rejected URL never echoes its credentials", async () => {
+		for (const bad of ["ftp://admin:s3cret@host", "admin:s3cret@host"]) {
+			const flag = await run(["--url", bad]);
+			const env = await run([], { ZOEKT_URL: bad });
+
+			for (const { stderr, exitCode } of [flag, env]) {
+				expect(exitCode).toBe(1);
+				expect(stderr).toContain("must be an http:// or https:// URL");
+				expect(stderr).not.toContain("s3cret");
+			}
+		}
+	});
+
 	test("the URL can come from ZOEKT_URL", async () => {
 		const { exitCode } = await run([], { ZOEKT_URL: "http://127.0.0.1:9" });
 
