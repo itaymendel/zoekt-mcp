@@ -21,7 +21,7 @@ const inputSchema = z.object({
 		.describe("Maximum repositories to return (1-200)"),
 });
 
-const description = `List indexed repositories, one line each: name, branches (branch@sha), file count, size and index date. Sorted by name.
+const description = `List indexed repositories, one line each: name and branches (branch@sha). Sorted by name.
 
 \`filter\` is an unanchored regex on the repository name, case-insensitive by default (start it with \`(?-i)\` for case-sensitive).
 
@@ -64,27 +64,7 @@ function formatRepoLine(repo: RepoListWire["Repos"][number]): string {
 	const extra = ordered.length - shown.length;
 	if (extra > 0) shown.push(`+${extra} more`);
 
-	return [
-		repo.Name,
-		shown.join(", "),
-		`${repo.Files} ${plural(repo.Files, "file", "files")}`,
-		formatBytes(repo.Size),
-		repo.IndexTime ? `indexed ${repo.IndexTime.slice(0, 10)}` : "",
-	]
-		.filter(Boolean)
-		.join("  ");
-}
-
-/** Base-1024 size with one decimal above 1 KiB. */
-function formatBytes(bytes: number): string {
-	const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-	let value = bytes;
-	let unit = 0;
-	while (value >= 1024 && unit < units.length - 1) {
-		value /= 1024;
-		unit++;
-	}
-	return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${units[unit]}`;
+	return `${repo.Name}  ${shown.join(", ")}`;
 }
 
 export const listReposTool: Tool<typeof inputSchema> = {

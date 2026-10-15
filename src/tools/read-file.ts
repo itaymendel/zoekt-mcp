@@ -50,7 +50,6 @@ async function readFile(
 ): Promise<string> {
 	const { repo, branch } = input;
 	const path = cleanPath(input.path);
-	if (path === "") throw new Error("path must not be empty.");
 	const startLine = input.startLine;
 	const wanted = input.endLine ?? startLine + DEFAULT_WINDOW_LINES - 1;
 	if (wanted < startLine) {

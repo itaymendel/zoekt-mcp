@@ -1,13 +1,4 @@
 {
-	"request": {
-		"method": "GET",
-		"path": "/print",
-		"query": {
-			"r": "example.test/delta",
-			"f": "bin.dat",
-			"format": "raw"
-		}
-	},
 	"response": {
 		"status": 200,
 		"contentType": "text/plain; charset=utf-8",

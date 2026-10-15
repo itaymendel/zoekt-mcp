@@ -29,11 +29,6 @@ export function formatFile(
 	file: { repo: string; path: string },
 	{ startLine, endLine: wantedEnd }: FileRange,
 ): string {
-	if (bytes.subarray(0, 8000).includes(0)) {
-		throw new Error(
-			`File looks binary (contains NUL bytes): ${file.repo}:${file.path}. read_file returns text files only.`,
-		);
-	}
 	let text = new TextDecoder().decode(bytes);
 	if (fetchTruncated) {
 		// The last line was cut mid-way; only complete lines are reported.

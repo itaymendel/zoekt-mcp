@@ -33,7 +33,12 @@ describe("tool metadata", () => {
 			(byName.get(name)?.inputSchema.properties ?? {}) as Record<string, Record<string, unknown>>;
 		const required = (name: string) => byName.get(name)?.inputSchema.required ?? [];
 
-		expect([...byName.keys()].sort()).toEqual(["list_repos", "read_file", "search"]);
+		expect([...byName.keys()].sort()).toEqual([
+			"list_repos",
+			"read_file",
+			"search",
+			"search_syntax",
+		]);
 		for (const tool of tools) {
 			expect(tool.title).toBeTruthy();
 			expect(tool.annotations).toEqual({
@@ -97,7 +102,7 @@ describe("tool errors carry Zoekt's text", () => {
 
 			expect(result.isError).toBe(true);
 			expect(resultText(result)).toBe(
-				"search error: Zoekt rejected the request: query: missing close paren, got token <nil>",
+				"search error: Zoekt rejected the request: query: missing close paren, got token <nil>\nSee the search_syntax tool for the query language.",
 			);
 		} finally {
 			await mcp.close();

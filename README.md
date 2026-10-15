@@ -1,6 +1,6 @@
 # zoekt-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that gives AI agents fast code search over repositories indexed by [Zoekt](https://github.com/sourcegraph/zoekt). Three read-only tools: `search`, `list_repos` and `read_file`.
+An [MCP](https://modelcontextprotocol.io) server that gives AI agents fast code search over repositories indexed by [Zoekt](https://github.com/sourcegraph/zoekt). Read-only tools: `search`, `list_repos`, `read_file` and `search_syntax`.
 
 **Status: 1.0.0-alpha.** Install the `next` tag (`npx -y zoekt-mcp@next`). `latest` still points at 0.1.0 until 1.0.0 ships.
 
@@ -56,43 +56,34 @@ Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json
 
 Other clients (Cursor, VS Code, ...) use the same command, arguments and `ZOEKT_URL` variable in their own MCP settings.
 
-### Streamable HTTP
+### Streamable HTTP (one shared server)
 
-Run one shared server, then point clients at `/mcp`:
-
-```bash
-ZOEKT_URL=http://localhost:6070 npx -y zoekt-mcp@next --transport http
-claude mcp add --transport http zoekt http://127.0.0.1:3000/mcp
-```
-
-With a bearer token (required when binding anything but loopback; at least 16 characters):
+Run a single server next to Zoekt and point clients at `/mcp`:
 
 ```bash
 export TOKEN=$(openssl rand -hex 24)
-ZOEKT_URL=http://localhost:6070 MCP_AUTH_TOKEN=$TOKEN npx -y zoekt-mcp@next --transport http
-claude mcp add --transport http zoekt http://127.0.0.1:3000/mcp --header "Authorization: Bearer $TOKEN"
+ZOEKT_URL=http://localhost:6070 MCP_AUTH_TOKEN=$TOKEN MCP_HOST=0.0.0.0 npx -y zoekt-mcp@next --transport http
+claude mcp add --transport http zoekt http://zoekt-mcp.internal:3000/mcp --header "Authorization: Bearer $TOKEN"
 ```
 
-The HTTP transport is stateless Streamable HTTP on `POST /mcp`. `GET /healthz` reports process liveness without touching Zoekt.
+The server is stateless Streamable HTTP on `POST /mcp`; `GET /healthz` reports process liveness without touching Zoekt (use it for container probes). It binds to `127.0.0.1` by default. Any other bind needs `MCP_AUTH_TOKEN`, so it cannot be exposed unauthenticated by accident. There is no TLS: terminate it at your proxy or ingress.
 
 ## Tools
 
 | Tool | Purpose | Parameters |
 | --- | --- | --- |
 | `search` | Search code with Zoekt query syntax | `query`, `maxFiles` (1-100, default 20) |
+| `search_syntax` | Read the Zoekt query-language guide, one section at a time | `topic` (omit to list the sections) |
 | `list_repos` | List indexed repositories | `filter` (regex on the name, case-insensitive), `limit` (1-200, default 50) |
 | `read_file` | Read a file as numbered lines | `repo`, `path`, `branch`, `startLine`, `endLine` (500 lines by default, 2000 at most) |
 
-All three are read-only and closed-world; clients that honour tool annotations can run them without confirmation. The server also sends short `instructions` describing the `list_repos` -> `search` -> `read_file` workflow.
+All four are read-only and closed-world; clients that honour tool annotations can run them without confirmation. The server also sends short `instructions` describing the `list_repos` -> `search` -> `read_file` workflow.
 
-## Security
-
-HTTP binds to `127.0.0.1`; any other bind needs `MCP_AUTH_TOKEN`. `/mcp` validates Host and Origin (loopback always allowed; add hostnames with `MCP_ALLOWED_HOSTS`), caps bodies at 1 MiB, and requires `Authorization: Bearer <token>` when a token is set. `/healthz` is exempt.
-Credentials in `ZOEKT_URL` are sent as Basic auth and never logged. See the table below for every setting.
+Credentials in `ZOEKT_URL` are sent as Basic auth and never logged. On a loopback bind the HTTP server validates `Host` and `Origin` (DNS-rebinding protection), and `/mcp` bodies are capped at 1 MiB.
 
 ## Configuration
 
-CLI flags take precedence over environment variables. Empty values count as unset. Usage and configuration errors print a readable message to stderr and exit with code 2.
+CLI flags take precedence over environment variables. Empty values count as unset. Invalid flags or environment values print a readable message to stderr and exit with code 1. `zoekt-mcp --help` lists every option.
 
 | Flag | Environment variable | Default | Description |
 | --- | --- | --- | --- |
@@ -100,9 +91,8 @@ CLI flags take precedence over environment variables. Empty values count as unse
 | `--transport` | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `--port` | `MCP_PORT` | `3000` | HTTP port |
 | | `MCP_HOST` | `127.0.0.1` | HTTP bind address |
+| | `MCP_AUTH_TOKEN` | none | Bearer token for `/mcp`; required for any non-loopback bind |
 | | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` (logs go to stderr) |
-| | `MCP_ALLOWED_HOSTS` | none | Extra `Host` hostnames, comma-separated |
-| | `MCP_AUTH_TOKEN` | none | Bearer token for `/mcp` (at least 16 characters) |
 
 ## Troubleshooting
 
@@ -111,7 +101,12 @@ CLI flags take precedence over environment variables. Empty values count as unse
 - **`Cannot reach Zoekt at ... (ECONNREFUSED)`.** Check `ZOEKT_URL` and that `zoekt-webserver` is running; from a container, `localhost` is the container itself.
 - **`NOT-INDEXED` from `read_file`.** Zoekt skips binary and oversized files, so they cannot be read through this server.
 - **`r:name` finds nothing.** Repository regexes are case-sensitive; use `r:(?i)name`, or run `list_repos` for the exact name.
-- **403 on `/mcp`.** The `Host` or `Origin` header is not allowed; see `MCP_ALLOWED_HOSTS`.
+
+- **403 on `/mcp`.** On a loopback bind the `Host` or `Origin` header must be localhost; to serve other hostnames, bind to a non-loopback address and set `MCP_AUTH_TOKEN`.
+
+## Acknowledgements
+
+`search_syntax` serves the [Zoekt query language guide](https://github.com/sourcegraph/zoekt/blob/main/doc/query_syntax.md), bundled verbatim (Apache License 2.0, Sourcegraph).
 
 ## Upgrading
 

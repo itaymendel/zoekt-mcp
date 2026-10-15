@@ -5,6 +5,7 @@ import type { Logger } from "./logger.js";
 import { listReposTool } from "./tools/list-repos.js";
 import { readFileTool } from "./tools/read-file.js";
 import { searchTool } from "./tools/search.js";
+import { searchSyntaxTool } from "./tools/search-syntax.js";
 import type { Tool } from "./tools/tool.js";
 import { getErrorMessage } from "./utils.js";
 import type { ZoektClient } from "./zoekt/client.js";
@@ -15,7 +16,7 @@ export interface ServerDeps {
 	logger: Logger;
 }
 
-const TOOLS: Tool[] = [searchTool, listReposTool, readFileTool];
+const TOOLS: Tool[] = [searchTool, searchSyntaxTool, listReposTool, readFileTool];
 
 /** Every tool only reads from Zoekt. */
 const READ_ONLY_ANNOTATIONS = {

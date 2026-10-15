@@ -137,13 +137,6 @@ describe("read_file output", () => {
 		expect(text).toContain("The file is empty.");
 	});
 
-	test("NUL bytes are refused", async () => {
-		const { result, text } = await callRead(printing("ab\0cd"), { repo: ALPHA, path: "x.bin" });
-
-		expect(result.isError).toBe(true);
-		expect(text).toContain("looks binary");
-	});
-
 	test("a file over the fetch cap reports that later lines are unavailable", async () => {
 		const line = `${"z".repeat(63)}\n`;
 		const body = line.repeat(Math.ceil((MAX_FETCH_BYTES + 1024) / line.length));

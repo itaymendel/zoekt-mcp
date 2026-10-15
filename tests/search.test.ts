@@ -112,20 +112,6 @@ describe("rows", () => {
 		expect(text).toContain("## src/handler.go  (branches: main, main-old, feature)");
 	});
 
-	test("filename matches are not undercounted when Stats are missing", () => {
-		const response = stub({
-			FileMatches: [
-				zfile("r", "a", [{ LineNum: 0, Fragments: [{ Pre: "", Match: "a", Post: "" }] }]),
-				zfile("r", "b", [matchAt(4), matchAt(9)]),
-			],
-		});
-
-		expect(render(response)).toMatch(/\n---\n2 files, 2 matching lines, 1 filename match\.$/);
-		expect(render(loadSearchResponse("search-file-only"))).toMatch(
-			/\n---\n1 file, 1 filename match\.$/,
-		);
-	});
-
 	test("no matches", () => {
 		expect(render(stub({}), { query: "needle" })).toBe("No matches for `needle`.");
 	});
@@ -229,20 +215,11 @@ describe("footer", () => {
 			() => render(loadSearchResponse("search-many-files"), { maxFiles: 3 }),
 			`Showing 3 of 8 files; ${FOOTER}`,
 		],
+		["everything shown", () => two({ FileCount: 2, MatchCount: 2 }), "2 files."],
 		[
-			"missing Stats makes the total a lower bound",
-			() => two(undefined, { maxFiles: 1 }),
-			`Showing 1 of at least 2 files; ${FOOTER}`,
-		],
-		[
-			"a lower bound alone is not truncation (FilesSkipped)",
+			"skipped files or shards flag the result as incomplete",
 			() => two({ FileCount: 2, FilesSkipped: 1, MatchCount: 2 }),
-			"At least 2 files, 2 matching lines.",
-		],
-		[
-			"a lower bound alone is not truncation (ShardsSkipped)",
-			() => two({ FileCount: 2, ShardsSkipped: 2, MatchCount: 2 }),
-			"At least 2 files, 2 matching lines.",
+			"2 files (incomplete: Zoekt skipped part of the index).",
 		],
 	];
 

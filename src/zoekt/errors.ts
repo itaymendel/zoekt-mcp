@@ -6,12 +6,13 @@ export class ZoektError extends Error {
 	}
 }
 
-// The file errors below are typed so callers can tell them apart.
+/** Zoekt rejected the query itself (HTTP 418 on /search); `message` carries its explanation. */
+export class ZoektQueryError extends ZoektError {}
+
+// Typed so read_file can tell them apart and explain each.
 export class ZoektFileNotFoundError extends ZoektError {}
 
 export class ZoektAmbiguousFileError extends ZoektError {}
-
-export class ZoektFileNotIndexedError extends ZoektError {}
 
 /**
  * Zoekt gives no out-of-band signal for files it skipped (binary, too large): it indexes a stub

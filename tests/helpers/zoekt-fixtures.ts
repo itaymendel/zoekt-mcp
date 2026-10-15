@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import { type SearchResponse, SearchResultSchema } from "../../src/zoekt/types.js";
 import { CASES_URL } from "./fixture-repo.js";
 
-/** One captured Zoekt exchange. */
+/** One captured Zoekt response. */
 export interface ZoektCase {
-	request: { method: string; path: string; query: Record<string, string> };
 	response: {
 		status: number;
 		contentType: string;

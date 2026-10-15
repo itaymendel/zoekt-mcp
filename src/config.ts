@@ -1,186 +1,88 @@
+import { Command, InvalidArgumentError, Option } from "commander";
 import { z } from "zod";
-import { redactUrl } from "./utils.js";
+import pkg from "../package.json";
 
-const LogLevelSchema = z.enum(["debug", "info", "warn", "error"], {
-	error: "must be one of: debug, info, warn, error",
-});
-const TransportSchema = z.enum(["http", "stdio"], { error: 'must be "stdio" or "http"' });
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
-const MIN_TOKEN_LENGTH = 16;
+/** The only hosts `createMcpHonoApp` protects with Host/Origin validation; anything else needs a token. */
+const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "::1"];
 
-const PORT_MESSAGE = "must be an integer between 1 and 65535";
-
-// Bare hostnames only: ports are never pinned, and IPv6 must be bracketed ([::1]).
-const HOSTS_MESSAGE =
-	"must be comma-separated hostnames without ports (IPv6 in brackets, e.g. [::1])";
-const HostsSchema = z
-	.string()
-	.transform((value) =>
-		value
-			.split(",")
-			.map((entry) => entry.trim())
-			.filter(Boolean),
-	)
-	.pipe(
-		z.array(
-			z
-				.string()
-				.regex(/^([^\s/:[\]*]+|\[[0-9a-f:.]+\])$/i, HOSTS_MESSAGE)
-				.transform((host) => host.toLowerCase()),
-		),
-	);
-
-/** Userinfo is percent-decoded into a Basic auth header, so a malformed `%` sequence is a config error. */
-function hasValidCredentialEncoding(value: string): boolean {
-	try {
-		const { username, password } = new URL(value);
-		decodeURIComponent(username);
-		decodeURIComponent(password);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-const ConfigSchema = z.object({
-	zoektUrl: z
-		.url({
-			protocol: /^https?$/,
-			error: (issue) =>
-				issue.input === undefined
-					? "is required"
-					: "must be an http:// or https:// URL, e.g. http://localhost:6070",
-		})
-		.refine(hasValidCredentialEncoding, {
-			message: "credentials are not valid percent-encoding",
-		}),
-	// Whole-number string only: "1e3", "0x10" and "1.5" all fail.
-	mcpPort: z
-		.string({ error: PORT_MESSAGE })
-		.regex(/^\d+$/, PORT_MESSAGE)
-		.transform(Number)
-		.pipe(z.number().int(PORT_MESSAGE).min(1, PORT_MESSAGE).max(65535, PORT_MESSAGE))
-		.default(3000),
-	mcpHost: z.string().default("127.0.0.1"),
-	mcpTransport: TransportSchema.default("stdio"),
-	logLevel: LogLevelSchema.default("info"),
-	mcpAllowedHosts: HostsSchema.default([]),
+/** Settings without a flag: secrets stay out of argv, and the rest are deployment details. */
+const EnvSchema = z.object({
+	MCP_HOST: z.string().default("127.0.0.1"),
+	MCP_AUTH_TOKEN: z.string().optional(),
+	LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
-type RawKey = keyof z.input<typeof ConfigSchema>;
-
-/**
- * Where each config key comes from; the inline stand-in for an option registry. Keys with a
- * `flag` also read the CLI value of the same name; the rest are env-only.
- */
-const SOURCES: Record<RawKey, { flag?: string; env: string }> = {
-	zoektUrl: { flag: "--url", env: "ZOEKT_URL" },
-	mcpTransport: { flag: "--transport", env: "MCP_TRANSPORT" },
-	mcpPort: { flag: "--port", env: "MCP_PORT" },
-	mcpHost: { env: "MCP_HOST" },
-	logLevel: { env: "LOG_LEVEL" },
-	mcpAllowedHosts: { env: "MCP_ALLOWED_HOSTS" },
-};
-
-export type LogLevel = z.infer<typeof LogLevelSchema>;
-export type Transport = z.infer<typeof TransportSchema>;
-type Config = z.output<typeof ConfigSchema> & {
-	/** From MCP_AUTH_TOKEN; undefined when auth is off. */
-	mcpAuthToken?: string;
-};
-
-interface CliArgs {
-	zoektUrl?: string;
-	mcpTransport?: string;
-	mcpPort?: string;
+export interface Config {
+	zoektUrl: string;
+	transport: "stdio" | "http";
+	port: number;
+	host: string;
+	/** Undefined when auth is off. */
+	authToken?: string;
+	logLevel: LogLevel;
 }
 
-interface ConfigIssue {
-	flag?: string;
-	env: string;
-	message: string;
-	received?: string;
-}
-
-/** Human-readable stderr text; never JSON, never a zod dump. */
-function configError(issues: ConfigIssue[]): Error {
-	const lines = issues.map(({ flag, env, message, received }) => {
-		const name = flag ? `${flag} / ${env}` : env;
-		return `  ${name}: ${message}${received !== undefined ? ` (got "${received}")` : ""}`;
-	});
-	return new Error(
-		["zoekt-mcp: invalid configuration", ...lines, 'Run "zoekt-mcp --help" for usage.'].join("\n"),
-	);
-}
-
-/** `localhost`, 127.0.0.0/8 and ::1. */
-function isLoopbackHost(host: string): boolean {
-	const h = host.toLowerCase();
-	return h === "localhost" || h === "::1" || /^127(\.\d{1,3}){3}$/.test(h);
-}
-
-/** Trimmed value, or undefined when missing, empty or whitespace-only. */
-function clean(value: string | undefined): string | undefined {
-	const trimmed = value?.trim();
-	return trimmed ? trimmed : undefined;
-}
-
-export function loadConfig(
-	cliArgs: CliArgs = {},
-	env: Record<string, string | undefined> = process.env,
-): Config {
-	// CLI args take precedence over env vars; blank values count as unset.
-	const rawConfig = Object.fromEntries(
-		(Object.keys(SOURCES) as RawKey[]).map((key) => {
-			const { flag, env: envName } = SOURCES[key];
-			const cli = flag ? cliArgs[key as keyof CliArgs] : undefined;
-			return [key, clean(cli) ?? clean(env[envName])];
-		}),
-	) as Record<RawKey, string | undefined>;
-
-	const issues: ConfigIssue[] = [];
-	const result = ConfigSchema.safeParse(rawConfig);
-
-	if (!result.success) {
-		const reported = new Set<string>();
-		for (const issue of result.error.issues) {
-			const key = issue.path[0] as RawKey;
-			if (reported.has(key)) continue;
-			reported.add(key);
-			const value = rawConfig[key];
-			const received = key === "zoektUrl" && value !== undefined ? redactUrl(value) : value;
-			issues.push({ ...SOURCES[key], message: issue.message, received });
-		}
+function parseZoektUrl(value: string): string {
+	const url = URL.parse(value);
+	if (url?.protocol !== "http:" && url?.protocol !== "https:") {
+		throw new InvalidArgumentError(
+			"must be an http:// or https:// URL, e.g. http://localhost:6070",
+		);
 	}
-
-	const token = resolveToken(env, issues);
-	if (!result.success || issues.length > 0) throw configError(issues);
-
-	const config: Config = { ...result.data, mcpAuthToken: token };
-	if (config.mcpTransport === "http" && !isLoopbackHost(config.mcpHost) && !token) {
-		throw configError([
-			{
-				...SOURCES.mcpHost,
-				message:
-					"refusing to listen on a non-loopback address without authentication; set MCP_AUTH_TOKEN",
-				received: config.mcpHost,
-			},
-		]);
-	}
-	return config;
+	return value;
 }
 
-function resolveToken(
-	env: Record<string, string | undefined>,
-	issues: ConfigIssue[],
-): string | undefined {
-	const token = clean(env.MCP_AUTH_TOKEN);
-	if (token !== undefined && token.length < MIN_TOKEN_LENGTH) {
-		issues.push({
-			env: "MCP_AUTH_TOKEN",
-			message: `token must be at least ${MIN_TOKEN_LENGTH} characters`,
-		});
-		return undefined;
+function parsePort(value: string): number {
+	const port = Number(value);
+	if (!Number.isInteger(port) || port < 1 || port > 65535) {
+		throw new InvalidArgumentError("must be an integer between 1 and 65535");
 	}
-	return token;
+	return port;
+}
+
+/** Parses flags (each with an env fallback) and the env-only settings; exits with a message on bad input. */
+export function loadConfig(argv: string[] = process.argv): Config {
+	const program: Command = new Command()
+		.name("zoekt-mcp")
+		.description("MCP server for Zoekt code search")
+		.version(`${pkg.name} ${pkg.version}`, "-v, --version")
+		.addOption(
+			new Option("--url <url>", "Zoekt webserver URL")
+				.env("ZOEKT_URL")
+				.argParser(parseZoektUrl)
+				.makeOptionMandatory(),
+		)
+		.addOption(
+			new Option("--transport <mode>", "MCP transport")
+				.env("MCP_TRANSPORT")
+				.choices(["stdio", "http"])
+				.default("stdio"),
+		)
+		.addOption(
+			new Option("--port <number>", "HTTP port").env("MCP_PORT").argParser(parsePort).default(3000),
+		)
+		.addHelpText(
+			"after",
+			"\nEnvironment only: MCP_HOST (HTTP bind address, default 127.0.0.1), MCP_AUTH_TOKEN\n(bearer token for /mcp; required for a non-loopback bind), LOG_LEVEL (debug, info, warn, error).",
+		)
+		.parse(argv);
+	const opts = program.opts<{ url: string; transport: Config["transport"]; port: number }>();
+
+	const env = EnvSchema.safeParse(process.env);
+	if (!env.success) program.error(z.prettifyError(env.error));
+	const { MCP_HOST: host, MCP_AUTH_TOKEN: authToken, LOG_LEVEL: logLevel } = env.data;
+
+	if (opts.transport === "http" && !LOOPBACK_HOSTS.includes(host) && !authToken) {
+		program.error(`MCP_HOST=${host} is not a loopback address; set MCP_AUTH_TOKEN to listen on it`);
+	}
+	return {
+		zoektUrl: opts.url,
+		transport: opts.transport,
+		port: opts.port,
+		host,
+		authToken,
+		logLevel,
+	};
 }

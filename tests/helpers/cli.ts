@@ -1,7 +1,5 @@
 const ENTRY = "src/index.ts";
 
-export type Spawned = ReturnType<typeof spawn>;
-
 export function spawn(args: string[], env: Record<string, string> = {}) {
 	return Bun.spawn(["bun", ENTRY, ...args], {
 		stdin: "ignore",

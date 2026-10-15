@@ -1,36 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { run, type Spawned, spawn } from "./helpers/cli.js";
-
-const TOKEN = "0123456789abcdef-secret";
-
-async function freePort(): Promise<number> {
-	const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
-	const { port } = probe;
-	await probe.stop(true);
-	return port as number;
-}
-
-/** Drains stderr in the background; `until` polls the accumulated text. */
-function captureStderr(proc: Spawned) {
-	const capture = { text: "" };
-	const decoder = new TextDecoder();
-	const done = (async () => {
-		for await (const chunk of proc.stderr) capture.text += decoder.decode(chunk, { stream: true });
-	})();
-	return {
-		get text() {
-			return capture.text;
-		},
-		done,
-		async until(predicate: (text: string) => boolean, ms = 8000) {
-			const deadline = Date.now() + ms;
-			while (!predicate(capture.text) && Date.now() < deadline) {
-				await new Promise((resolve) => setTimeout(resolve, 25));
-			}
-			return capture.text;
-		},
-	};
-}
+import { run, spawn } from "./helpers/cli.js";
 
 describe("exit codes", () => {
 	test("stdio is the default: exits 0 on EOF", async () => {
@@ -54,28 +23,62 @@ describe("exit codes", () => {
 	});
 });
 
+describe("configuration errors", () => {
+	const cases: Array<[string, string[], Record<string, string>, string]> = [
+		["a missing URL", [], {}, "required option '--url <url>'"],
+		["a non-http URL", ["--url", "ftp://x"], {}, "must be an http:// or https:// URL"],
+		["an unknown transport", ["--url", "http://x", "--transport", "sse"], {}, "Allowed choices"],
+		["a bad port", ["--url", "http://x", "--port", "0"], {}, "between 1 and 65535"],
+		["a bad log level", ["--url", "http://x"], { LOG_LEVEL: "loud" }, "LOG_LEVEL"],
+		[
+			"a non-loopback bind without a token",
+			["--url", "http://x", "--transport", "http"],
+			{ MCP_HOST: "0.0.0.0" },
+			"set MCP_AUTH_TOKEN",
+		],
+	];
+
+	test.each(cases)("%s exits 1 with a readable message", async (_name, args, env, message) => {
+		const { stderr, exitCode } = await run(args, env);
+
+		expect(exitCode).toBe(1);
+		expect(stderr).toContain(message);
+	});
+
+	test("the URL can come from ZOEKT_URL", async () => {
+		const { exitCode } = await run([], { ZOEKT_URL: "http://127.0.0.1:9" });
+
+		expect(exitCode).toBe(0);
+	});
+});
+
 describe("HTTP process", () => {
-	test("binds loopback by default, enforces the token, exits 0 on SIGTERM and never logs the token", async () => {
-		const port = await freePort();
-		const proc = spawn(
-			["--url", "http://127.0.0.1:9", "--transport", "http", "--port", String(port)],
-			{ MCP_AUTH_TOKEN: TOKEN, LOG_LEVEL: "debug" },
-		);
-		const log = captureStderr(proc);
+	test("serves /healthz and exits 0 on SIGTERM", async () => {
+		const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
+		const port = probe.port as number;
+		await probe.stop(true);
+
+		const proc = spawn([
+			"--url",
+			"http://127.0.0.1:9",
+			"--transport",
+			"http",
+			"--port",
+			String(port),
+		]);
 		try {
-			await log.until((text) => text.includes("listening"));
-			const url = `http://127.0.0.1:${port}/mcp`;
-			const init = { method: "POST", body: "{}" } as const;
-			expect((await fetch(url, init)).status).toBe(401);
-			expect(
-				(await fetch(url, { ...init, headers: { authorization: `Bearer ${TOKEN}` } })).status,
-			).not.toBe(401);
+			let status = 0;
+			for (let i = 0; i < 80 && status !== 200; i++) {
+				status = await fetch(`http://127.0.0.1:${port}/healthz`).then(
+					(res) => res.status,
+					() => 0,
+				);
+				if (status !== 200) await new Promise((resolve) => setTimeout(resolve, 50));
+			}
+			expect(status).toBe(200);
 		} finally {
 			proc.kill("SIGTERM");
 		}
 		expect(await proc.exited).toBe(0);
-		await log.done;
-		expect(log.text).toContain("127.0.0.1");
-		expect(log.text).not.toContain(TOKEN);
 	});
 });

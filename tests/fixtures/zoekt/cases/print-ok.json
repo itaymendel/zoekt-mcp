@@ -1,14 +1,4 @@
 {
-	"request": {
-		"method": "GET",
-		"path": "/print",
-		"query": {
-			"r": "example.test/alpha",
-			"format": "raw",
-			"f": "docs/notes.txt",
-			"b": "main"
-		}
-	},
 	"response": {
 		"status": 200,
 		"contentType": "text/plain; charset=utf-8",

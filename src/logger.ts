@@ -9,9 +9,6 @@ const LOG_REDACT = {
 	censor: "[redacted]",
 };
 
-export function createLogger(
-	minLevel: LogLevel,
-	destination: pino.DestinationStream = pino.destination({ dest: 2, sync: true }),
-): Logger {
-	return pino({ level: minLevel, redact: LOG_REDACT }, destination);
+export function createLogger(minLevel: LogLevel): Logger {
+	return pino({ level: minLevel, redact: LOG_REDACT }, pino.destination({ dest: 2, sync: true }));
 }

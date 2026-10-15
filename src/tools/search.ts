@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CONTEXT_LINES, DEFAULT_OUTPUT_CHARS, formatSearch } from "../search-format.js";
+import { ZoektQueryError } from "../zoekt/errors.js";
 import type { Tool } from "./tool.js";
 
 const inputSchema = z.object({
@@ -13,27 +14,22 @@ const inputSchema = z.object({
 		.describe("Maximum number of files to return (1-100)"),
 });
 
-const description = `Search code with Zoekt. Matches are grouped by repo and file with line numbers; pass the printed repo and path to read_file.
+const description = `Search code with Zoekt. Results are grouped by repo and file as \`<line>:<text>\` rows (\`<line>-<text>\` is context); pass the printed repo and path to read_file. Full query language: the \`search_syntax\` tool. If the footer says results were cut, narrow with \`r:\`, \`f:\` or \`lang:\` rather than repeating the query.
 
 ## Query syntax
-- Every word is an unanchored RE2 regex, not a literal: \`a.b\` also matches aXb. A space means AND (within one file), lowercase \`or\` means OR, and parentheses group. \`and\` is not an operator; it is searched as text. \`X or Y r:z\` means \`X or (Y r:z)\`, so write \`(X or Y) r:z\`.
-- Case is smart by default: all-lowercase terms ignore case, any capital makes the term case-sensitive. \`case:yes\` and \`case:no\` force it.
+- Every word is an unanchored RE2 regex, not a literal: \`a.b\` also matches aXb. A space means AND (within one file), lowercase \`or\` means OR, parentheses group. \`and\` is not an operator. \`X or Y r:z\` means \`X or (Y r:z)\`, so write \`(X or Y) r:z\`.
+- Case is smart: all-lowercase terms ignore case, any capital makes the term case-sensitive. \`case:yes\` / \`case:no\` force it.
 - A leading \`-\` negates a term or filter.
-- Filters: \`r:\` or \`repo:\` (regex on the repo name, case-sensitive; use \`r:(?i)acme\`); \`f:\` or \`file:\` (regex on the path); \`lang:go\` (no short form; an unknown language matches nothing); \`b:\` or \`branch:\` (substring of the branch name; \`branch:HEAD\` is the default branch); \`c:\` (file content only); \`archived:\`, \`fork:\`, \`public:\` with yes or no; \`meta.<field>:\` (regex on repo metadata).
-- \`sym:Name\` finds symbol definitions. It needs an index built with ctags; zero results may mean there are no symbols, so retry as plain text.
-- \`type:file\` returns matching file paths only, no lines. Use it to find files by name.
-- Quotes keep a phrase together. Inside quotes write \`\\\\.\` for a literal dot and \`\\"\` for a quote.
+- Filters: \`r:\` (regex on the repo name, case-sensitive; use \`r:(?i)acme\`), \`f:\` (regex on the path), \`lang:go\` (an unknown language matches nothing), \`b:\` (branch; \`b:HEAD\` is the default branch), \`c:\` (content only).
+- \`sym:Name\` finds symbol definitions and needs a ctags-built index; zero results may mean no symbols, so retry as plain text.
+- \`type:file\` returns matching file paths only. Use it to find files by name.
+- Quote a phrase to keep it together; inside quotes write \`\\\\.\` for a literal dot.
 
 ## Examples
 - \`handleRequest\\( lang:go -f:_test\`
 - \`sym:Server f:\\.ts$\`
 - \`type:file f:docker-compose\`
-- \`case:yes ErrNotFound\`
-- \`(foo or bar) r:(?i)acme\`
-- \`"v1\\\\.2" lang:go\`
-
-## Output
-Repos appear as \`# <repo>\` and files as \`## <path>\`. A file indexed on branches other than just HEAD shows \`(branches: ...)\` after its path. Rows are \`<line>:<text>\` for matches and \`<line>-<text>\` for context (2 lines each side of a match); \`--\` separates non-adjacent groups. Results are bounded by maxFiles and an output size cap (\`[output truncated]\`); the footer after \`---\` says what was cut. If it was cut, narrow the query with \`r:\`, \`f:\` or \`lang:\` instead of repeating it.`;
+- \`(foo or bar) r:(?i)acme\``;
 
 export const searchTool: Tool<typeof inputSchema> = {
 	name: "search",
@@ -42,10 +38,12 @@ export const searchTool: Tool<typeof inputSchema> = {
 	inputSchema,
 	async execute(client, { query, maxFiles }, ctx) {
 		// Ask for one file more than shown, so Zoekt's own cap cannot hide that there were more.
-		const response = await client.search(
-			{ query, num: maxFiles + 1, contextLines: CONTEXT_LINES },
-			{ signal: ctx.signal },
-		);
+		const response = await client
+			.search({ query, num: maxFiles + 1, contextLines: CONTEXT_LINES }, { signal: ctx.signal })
+			.catch((error) => {
+				if (!(error instanceof ZoektQueryError)) throw error;
+				throw new Error(`${error.message}\nSee the search_syntax tool for the query language.`);
+			});
 		return formatSearch(response, {
 			query,
 			maxFiles,

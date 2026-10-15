@@ -1,13 +1,4 @@
 {
-	"request": {
-		"method": "GET",
-		"path": "/print",
-		"query": {
-			"r": "example.test/alpha",
-			"format": "raw",
-			"f": "Makefile"
-		}
-	},
 	"response": {
 		"status": 418,
 		"contentType": "text/plain; charset=utf-8",

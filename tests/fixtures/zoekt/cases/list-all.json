@@ -1,12 +1,4 @@
 {
-	"request": {
-		"method": "GET",
-		"path": "/search",
-		"query": {
-			"q": "r:\".\"",
-			"format": "json"
-		}
-	},
 	"response": {
 		"status": 200,
 		"contentType": "application/json",

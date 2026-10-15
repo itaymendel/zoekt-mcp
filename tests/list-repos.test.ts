@@ -6,7 +6,7 @@ import { expectGolden } from "./helpers/golden.js";
 import { hangingFetch } from "./helpers/hanging-fetch.js";
 import { connectTestClient, resultText, type TestMcp } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
-import { loadCase, mockZoektFetch } from "./helpers/zoekt-fixtures.js";
+import { mockZoektFetch } from "./helpers/zoekt-fixtures.js";
 
 let mcp: TestMcp | undefined;
 afterEach(async () => {
@@ -58,7 +58,6 @@ describe("list_repos requests", () => {
 		const params = fetch.requests[0]?.searchParams;
 
 		expect(result.isError).toBeFalsy();
-		expect(params?.get("q")).toBe(loadCase("list-all").request.query.q as string);
 		expect(params?.get("q")).toBe('r:"."');
 		expect(params?.get("num")).toBe("50");
 		expect(params?.get("order")).toBe("name");
@@ -66,12 +65,10 @@ describe("list_repos requests", () => {
 		expect(text.startsWith("3 repositories indexed")).toBe(true);
 	});
 
-	test("list-filter replay: the request equals the captured case", async () => {
+	test("a filter becomes a case-insensitive repo query", async () => {
 		const { fetch, text } = await callListRepos({ "/search": "list-filter" }, { filter: "ALPHA" });
 
-		expect(fetch.requests[0]?.searchParams.get("q")).toBe(
-			loadCase("list-filter").request.query.q as string,
-		);
+		expect(fetch.requests[0]?.searchParams.get("q")).toBe('r:"(?i)ALPHA"');
 		expect(text).toContain('1 repository match "ALPHA"');
 		expect(text).toContain("example.test/alpha");
 	});
@@ -101,9 +98,7 @@ describe("list_repos output", () => {
 		});
 		const row = text.split("\n").find((l) => l.startsWith("many/branches")) as string;
 
-		expect(row).toContain(
-			"HEAD@2222222, dev@1111111, b2@3333333, +2 more  3 files  2.0 KiB  indexed 2025-03-04",
-		);
+		expect(row).toContain("many/branches  HEAD@2222222, dev@1111111, b2@3333333, +2 more");
 	});
 
 	test("repo URLs with credentials and metadata never reach the result", async () => {
@@ -175,14 +170,10 @@ describe("list_repos limit", () => {
 });
 
 describe("formatRepoList", () => {
-	test("Go's zero time is omitted and a real date shown as YYYY-MM-DD", () => {
-		const wire = RepoListWireSchema.parse({
-			Repos: [repoEntry("zero", { IndexTime: "0001-01-01T00:00:00Z" }), repoEntry("real")],
-		});
-		const lines = formatRepoList(wire, {}).split("\n");
+	test("a line is the name and its branches", () => {
+		const wire = RepoListWireSchema.parse({ Repos: [repoEntry("real")] });
 
-		expect(lines).toContain("zero  HEAD@aaaaaaa  3 files  2.0 KiB");
-		expect(lines).toContain("real  HEAD@aaaaaaa  3 files  2.0 KiB  indexed 2025-03-04");
+		expect(formatRepoList(wire, {}).split("\n")).toContain("real  HEAD@aaaaaaa");
 	});
 
 	test("a filter is echoed in the header", () => {

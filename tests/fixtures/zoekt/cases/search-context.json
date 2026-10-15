@@ -1,13 +1,4 @@
 {
-	"request": {
-		"method": "GET",
-		"path": "/search",
-		"query": {
-			"q": "needle",
-			"ctx": "1",
-			"format": "json"
-		}
-	},
 	"response": {
 		"status": 200,
 		"contentType": "application/json",

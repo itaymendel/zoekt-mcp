@@ -10,4 +10,4 @@
 7:export function lookupAll(names: string[]): number {
 
 ---
-2 files, 4 matching lines.
+2 files.

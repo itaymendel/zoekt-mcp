@@ -1,5 +1,5 @@
 3 repositories indexed.
 
-example.test/alpha  main@6521517, main-old@d2e349a, feature@9296f2d  15 files  816 B
-example.test/beta  HEAD@4c476ff  1 file  62 B
-example.test/delta  HEAD@91e6623  2 files  63 B
+example.test/alpha  main@6521517, main-old@d2e349a, feature@9296f2d
+example.test/beta  HEAD@4c476ff
+example.test/delta  HEAD@91e6623

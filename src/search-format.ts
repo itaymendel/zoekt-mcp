@@ -165,27 +165,10 @@ export function formatSearch(response: SearchResponse, opts: SearchFormatOptions
 		.join(BLOCK_SEPARATOR);
 	if (capped) body += "\n[output truncated]";
 
-	const count = (n: number, noun: string) => `${n} ${plural(n, noun)}`;
-	let footer: string;
-	if (totalFiles > shown) {
-		const atLeast = Stats ? "" : "at least ";
-		footer = `Showing ${shown} of ${atLeast}${totalFiles} files; narrow with r:/f:/lang:`;
-	} else {
-		// Without Stats, count filename matches too: the footer subtracts them again.
-		const matches =
-			Stats?.MatchCount ||
-			ranked.reduce(
-				(n, f) => n + f.lines.filter((l) => l.match).length + (f.filenameMatch ? 1 : 0),
-				0,
-			);
-		const filenameMatches = ranked.filter((f) => f.filenameMatch).length;
-		const lines = Math.max(matches - filenameMatches, 0);
-		const lowerBound = (Stats?.FilesSkipped ?? 0) > 0 || (Stats?.ShardsSkipped ?? 0) > 0;
-		const parts = [`${lowerBound ? "At least " : ""}${count(totalFiles, "file")}`];
-		if (lines > 0 || filenameMatches === 0) parts.push(count(lines, "matching line"));
-		if (filenameMatches > 0)
-			parts.push(`${filenameMatches} filename ${plural(filenameMatches, "match", "matches")}`);
-		footer = `${parts.join(", ")}.`;
-	}
+	const skipped = (Stats?.FilesSkipped ?? 0) > 0 || (Stats?.ShardsSkipped ?? 0) > 0;
+	const footer =
+		totalFiles > shown
+			? `Showing ${shown} of ${totalFiles} files; narrow with r:/f:/lang:`
+			: `${totalFiles} ${plural(totalFiles, "file")}${skipped ? " (incomplete: Zoekt skipped part of the index)" : ""}.`;
 	return `${body}${BLOCK_SEPARATOR}${FOOTER_RULE}\n${footer}`;
 }

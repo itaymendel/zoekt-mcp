@@ -5,7 +5,7 @@ import {
 	ZoektAmbiguousFileError,
 	ZoektError,
 	ZoektFileNotFoundError,
-	ZoektFileNotIndexedError,
+	ZoektQueryError,
 } from "./errors.js";
 import {
 	ApiResponseSchema,
@@ -18,8 +18,6 @@ import {
 const MAX_ERROR_BODY = 500;
 /** Longest non-JSON 200 body quoted in an error message. */
 const MAX_SNIPPET = 200;
-/** Never read more than this from an error response. */
-const MAX_ERROR_READ_BYTES = 64 * 1024;
 /** Zoekt's `NOT-INDEXED: <reason>` stub for binary/oversized files is far below this. */
 const NOT_INDEXED_MAX_BYTES = 256;
 const HTML_HINT = "HTML page; is ZOEKT_URL pointing at zoekt-webserver?";
@@ -120,9 +118,7 @@ export class ZoektClient {
 		if (!raw.truncated && raw.bytes.length <= NOT_INDEXED_MAX_BYTES) {
 			const why = notIndexedReason(utf8.decode(raw.bytes));
 			if (why !== undefined) {
-				throw new ZoektFileNotIndexedError(
-					`File is not indexed by Zoekt (${why}): ${repo}:${path}`,
-				);
+				throw new ZoektError(`File is not indexed by Zoekt (${why}): ${repo}:${path}`);
 			}
 		}
 
@@ -195,7 +191,9 @@ export class ZoektClient {
 				signal,
 				headers: { ...this.baseHeaders, Accept: accept },
 			});
-			body = await readBody(response, response.ok ? maxBytes : MAX_ERROR_READ_BYTES);
+			const bytes = new Uint8Array(await response.arrayBuffer());
+			const cut = response.ok && maxBytes !== undefined && bytes.length > maxBytes;
+			body = { bytes: cut ? bytes.subarray(0, maxBytes) : bytes, truncated: cut };
 		} catch (error) {
 			if (req.signal?.aborted) throw error;
 			if ((error as { name?: unknown } | null)?.name === "TimeoutError") {
@@ -225,7 +223,7 @@ export class ZoektClient {
 		this.logger.debug({ status: response.status, body: text }, "Zoekt returned an error");
 		if (response.status === 418) {
 			if (endpoint === "search")
-				throw new ZoektError(`Zoekt rejected the request${shown ? `: ${shown}` : ""}`);
+				throw new ZoektQueryError(`Zoekt rejected the request${shown ? `: ${shown}` : ""}`);
 			const listed = /^ambiguous result: \[(.*)\]/s.exec(text.trim());
 			if (listed) {
 				const { r, f, b } = params;
@@ -244,39 +242,7 @@ export class ZoektClient {
 	}
 }
 
-async function readBody(response: Response, maxBytes?: number): Promise<Body> {
-	if (maxBytes === undefined || !response.body) {
-		return { bytes: new Uint8Array(await response.arrayBuffer()), truncated: false };
-	}
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	let truncated = false;
-	for (;;) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		if (total + value.length > maxBytes) {
-			chunks.push(value.subarray(0, maxBytes - total));
-			total = maxBytes;
-			truncated = true;
-			await reader.cancel();
-			break;
-		}
-		chunks.push(value);
-		total += value.length;
-	}
-	const bytes = new Uint8Array(total);
-	let at = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, at);
-		at += chunk.length;
-	}
-	return { bytes, truncated };
-}
-
 /** Trimmed, capped body for error messages. */
 function capBody(body: string): string {
-	const text = body.trim();
-	if (text.length <= MAX_ERROR_BODY) return text;
-	return `${text.slice(0, MAX_ERROR_BODY)}… (truncated, ${text.length} chars total)`;
+	return body.trim().slice(0, MAX_ERROR_BODY);
 }
