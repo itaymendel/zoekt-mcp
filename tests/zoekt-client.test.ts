@@ -129,17 +129,46 @@ describe("failures", () => {
 	});
 });
 
-describe("print cap", () => {
-	test("a body over maxBytes is cut and flagged", async () => {
-		const { bytes, truncated } = await clientFor("x".repeat(2000)).print(
-			ALPHA_REPO,
-			"big.txt",
-			undefined,
-			1024,
-		);
+describe("print streaming cap", () => {
+	test("print stops reading at maxBytes instead of buffering the whole body", async () => {
+		const state = { pulled: 0, cancelled: false };
+		const chunk = new Uint8Array(512).fill(97);
+		const body = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				state.pulled++;
+				controller.enqueue(chunk);
+			},
+			cancel() {
+				state.cancelled = true;
+			},
+		});
+		const { client } = testDeps((async () => new Response(body)) as unknown as Fetch);
+
+		const { bytes, truncated } = await client.print(ALPHA_REPO, "inf.txt", undefined, 1024);
 
 		expect(bytes.length).toBe(1024);
 		expect(truncated).toBe(true);
+		expect(state.cancelled).toBe(true);
+		expect(state.pulled).toBeLessThan(10);
+	});
+
+	test("an endless error body is bounded too", async () => {
+		const state = { cancelled: false };
+		const body = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				controller.enqueue(new Uint8Array(4096).fill(120));
+			},
+			cancel() {
+				state.cancelled = true;
+			},
+		});
+		const { client } = testDeps(
+			(async () => new Response(body, { status: 500 })) as unknown as Fetch,
+		);
+
+		await rejection(client.search({ query: "x" }));
+
+		expect(state.cancelled).toBe(true);
 	});
 });
 

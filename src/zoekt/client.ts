@@ -16,6 +16,8 @@ import {
 
 /** Longest Zoekt error body quoted in an error message. */
 const MAX_ERROR_BODY = 500;
+/** Never read more than this from an error response. */
+const MAX_ERROR_READ_BYTES = 64 * 1024;
 /** Longest non-JSON 200 body quoted in an error message. */
 const MAX_SNIPPET = 200;
 /** Zoekt's `NOT-INDEXED: <reason>` stub for binary/oversized files is far below this. */
@@ -191,9 +193,7 @@ export class ZoektClient {
 				signal,
 				headers: { ...this.baseHeaders, Accept: accept },
 			});
-			const bytes = new Uint8Array(await response.arrayBuffer());
-			const cut = response.ok && maxBytes !== undefined && bytes.length > maxBytes;
-			body = { bytes: cut ? bytes.subarray(0, maxBytes) : bytes, truncated: cut };
+			body = await readBody(response, response.ok ? maxBytes : MAX_ERROR_READ_BYTES);
 		} catch (error) {
 			if (req.signal?.aborted) throw error;
 			if ((error as { name?: unknown } | null)?.name === "TimeoutError") {
@@ -240,6 +240,36 @@ export class ZoektClient {
 			`Zoekt /${endpoint} failed: HTTP ${response.status} ${response.statusText}${shown ? `: ${shown}` : ""}`,
 		);
 	}
+}
+
+async function readBody(response: Response, maxBytes?: number): Promise<Body> {
+	if (maxBytes === undefined || !response.body) {
+		return { bytes: new Uint8Array(await response.arrayBuffer()), truncated: false };
+	}
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	let truncated = false;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		if (total + value.length > maxBytes) {
+			chunks.push(value.subarray(0, maxBytes - total));
+			total = maxBytes;
+			truncated = true;
+			await reader.cancel();
+			break;
+		}
+		chunks.push(value);
+		total += value.length;
+	}
+	const bytes = new Uint8Array(total);
+	let at = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, at);
+		at += chunk.length;
+	}
+	return { bytes, truncated };
 }
 
 /** Trimmed, capped body for error messages. */
