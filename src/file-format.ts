@@ -14,17 +14,8 @@ export const MAX_FETCH_BYTES = 8 * 1024 * 1024;
 
 interface FileRange {
 	startLine: number;
-	/** Last line wanted, after defaulting (`startLine + 499`) and clamping to `MAX_WINDOW_LINES`. */
+	/** Last line wanted, after defaulting and clamping to `MAX_WINDOW_LINES`. */
 	endLine: number;
-}
-
-/** The only place that defaults, validates and clamps the requested range. */
-export function resolveRange(startLine: number, endLine?: number): FileRange {
-	const wanted = endLine ?? startLine + DEFAULT_WINDOW_LINES - 1;
-	if (wanted < startLine) {
-		throw new Error(`endLine (${wanted}) must not be before startLine (${startLine}).`);
-	}
-	return { startLine, endLine: Math.min(wanted, startLine + MAX_WINDOW_LINES - 1) };
 }
 
 /**

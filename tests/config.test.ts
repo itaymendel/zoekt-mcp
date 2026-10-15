@@ -2,20 +2,23 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, formatConfigError, loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/config.js";
 
 const URL_ENV = { ZOEKT_URL: "http://x" };
 const TOKEN = "0123456789abcdef-token";
 
-function issuesOf(fn: () => unknown): ConfigError["issues"] {
+/** The formatted stderr text of the error loadConfig throws. */
+function errorOf(fn: () => unknown): string {
 	try {
 		fn();
 	} catch (error) {
-		expect(error).toBeInstanceOf(ConfigError);
-		return (error as ConfigError).issues;
+		return (error as Error).message;
 	}
 	throw new Error("expected loadConfig to throw");
 }
+
+/** Number of reported option lines in a formatted config error. */
+const issueCount = (text: string) => text.split("\n").length - 2;
 
 describe("transport and precedence", () => {
 	test("CLI beats env, env beats default", () => {
@@ -30,57 +33,43 @@ describe("transport and precedence", () => {
 		expect(config.mcpTransport).toBe("stdio");
 		expect(config.mcpPort).toBe(3000);
 
-		const issues = issuesOf(() => loadConfig({}, { ZOEKT_URL: "" }));
-		expect(issues).toHaveLength(1);
-		expect(issues[0]).toMatchObject({ flag: "--url", env: "ZOEKT_URL", message: "is required" });
+		const text = errorOf(() => loadConfig({}, { ZOEKT_URL: "" }));
+		expect(issueCount(text)).toBe(1);
+		expect(text).toContain("--url / ZOEKT_URL: is required");
 	});
 });
 
 describe("zoekt url", () => {
 	test("rejects non-http(s) URLs", () => {
 		for (const bad of ["ftp://h", "file:///etc/passwd", "javascript:alert(1)", "localhost:6070"]) {
-			const issues = issuesOf(() => loadConfig({}, { ZOEKT_URL: bad }));
-			expect(issues).toHaveLength(1);
-			expect(issues[0]?.env).toBe("ZOEKT_URL");
-			expect(issues[0]?.message).toContain("must be an http:// or https:// URL");
-			expect(issues[0]?.received).toBe(bad);
+			const text = errorOf(() => loadConfig({}, { ZOEKT_URL: bad }));
+			expect(issueCount(text)).toBe(1);
+			expect(text).toContain(
+				`ZOEKT_URL: must be an http:// or https:// URL, e.g. http://localhost:6070 (got "${bad}")`,
+			);
 		}
 	});
 
 	test("never echoes credentials in a rejected ZOEKT_URL", () => {
 		for (const bad of ["ftp://u:s3cret@x", "u:s3cret@", "//u:s3cret@host", "ftp://s3cret@x"]) {
-			let error: unknown;
-			try {
-				loadConfig({}, { ZOEKT_URL: bad });
-			} catch (e) {
-				error = e;
-			}
-			expect(error).toBeInstanceOf(ConfigError);
-			expect(formatConfigError(error as ConfigError)).not.toContain("s3cret");
+			expect(errorOf(() => loadConfig({}, { ZOEKT_URL: bad }))).not.toContain("s3cret");
 		}
 	});
 
 	test("a malformed percent sequence in credentials is a config error that hides the value", () => {
-		const issues = issuesOf(() => loadConfig({}, { ZOEKT_URL: "http://u:s3%ZZcret@127.0.0.1:1" }));
-		expect(issues[0]?.message).toBe("credentials are not valid percent-encoding");
-		expect(JSON.stringify(issues)).not.toContain("s3");
+		const text = errorOf(() => loadConfig({}, { ZOEKT_URL: "http://u:s3%ZZcret@127.0.0.1:1" }));
+		expect(text).toContain("credentials are not valid percent-encoding");
+		expect(text).not.toContain("s3");
 		expect(loadConfig({}, { ZOEKT_URL: "http://u:p%40ss@h:1" }).zoektUrl).toContain("p%40ss");
 	});
 });
 
 describe("error reporting", () => {
 	test("reports every invalid option at once", () => {
-		let error: unknown;
-		try {
-			loadConfig({ mcpPort: "abc" }, { ...URL_ENV, MCP_TRANSPORT: "sse" });
-		} catch (e) {
-			error = e;
-		}
-		expect(error).toBeInstanceOf(ConfigError);
-		const issues = (error as ConfigError).issues;
-		expect(issues).toHaveLength(2);
-
-		const text = formatConfigError(error as ConfigError);
+		const text = errorOf(() =>
+			loadConfig({ mcpPort: "abc" }, { ...URL_ENV, MCP_TRANSPORT: "sse" }),
+		);
+		expect(issueCount(text)).toBe(2);
 		expect(text).toStartWith("zoekt-mcp: invalid configuration");
 		expect(text).toContain('--port / MCP_PORT: must be an integer between 1 and 65535 (got "abc")');
 		expect(text).toContain('--transport / MCP_TRANSPORT: must be "stdio" or "http" (got "sse")');
@@ -94,16 +83,14 @@ describe("HTTP security keys", () => {
 	test("HTTP binds loopback and requires auth by default", () => {
 		const config = loadConfig({}, URL_ENV);
 		expect(config.mcpHost).toBe("127.0.0.1");
-		expect(config.mcpAllowUnauthenticated).toBe(false);
 		expect(config.mcpAuthToken).toBeUndefined();
 	});
 
 	test("MCP_ALLOWED_HOSTS is normalized and rejects entries with a port or an unbracketed IPv6 address", () => {
 		for (const bad of ["foo:80", "::1", "*", "a.example,b.example:8443", "https://a.example"]) {
-			const issues = issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: bad }));
-			expect(issues).toHaveLength(1);
-			expect(issues[0]?.env).toBe("MCP_ALLOWED_HOSTS");
-			expect(issues[0]?.message).toContain("without ports");
+			const text = errorOf(() => loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: bad }));
+			expect(issueCount(text)).toBe(1);
+			expect(text).toContain("MCP_ALLOWED_HOSTS: must be comma-separated hostnames without ports");
 		}
 		const ok = loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: " A.example , ,[::1] " });
 		expect(ok.mcpAllowedHosts).toEqual(["a.example", "[::1]"]);
@@ -123,30 +110,30 @@ describe("HTTP security keys", () => {
 		});
 
 		test("token < 16 chars is a config error", () => {
-			const issues = issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN: "short" }));
-			expect(issues).toHaveLength(1);
-			expect(issues[0]?.env).toBe("MCP_AUTH_TOKEN");
-			expect(JSON.stringify(issues)).not.toContain("short");
+			const text = errorOf(() => loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN: "short" }));
+			expect(issueCount(text)).toBe(1);
+			expect(text).toContain("MCP_AUTH_TOKEN: token must be at least 16 characters");
+			expect(text).not.toContain("short");
 
 			const file = join(dir, "short");
 			writeFileSync(file, "short\n");
-			expect(
-				issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN_FILE: file }))[0]?.env,
-			).toBe("MCP_AUTH_TOKEN_FILE");
+			expect(errorOf(() => loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN_FILE: file }))).toContain(
+				"MCP_AUTH_TOKEN_FILE: token must be at least",
+			);
 		});
 
 		test("both token vars set is a config error", () => {
-			const issues = issuesOf(() =>
+			const text = errorOf(() =>
 				loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN: TOKEN, MCP_AUTH_TOKEN_FILE: join(dir, "t") }),
 			);
-			expect(issues[0]?.message).toContain("mutually exclusive");
+			expect(text).toContain("mutually exclusive");
 		});
 
 		test("unreadable token file is a config error", () => {
-			const issues = issuesOf(() =>
+			const text = errorOf(() =>
 				loadConfig({}, { ...URL_ENV, MCP_AUTH_TOKEN_FILE: join(dir, "missing") }),
 			);
-			expect(issues[0]?.message).toContain("could not read token file");
+			expect(text).toContain("could not read token file");
 		});
 	});
 
@@ -155,8 +142,8 @@ describe("HTTP security keys", () => {
 
 		test("without a token refuses to start and names MCP_AUTH_TOKEN", () => {
 			for (const host of ["0.0.0.0", "10.1.2.3", "::", "example.com"]) {
-				const issues = issuesOf(() => loadConfig({}, { ...http, MCP_HOST: host }));
-				expect(issues[0]?.message).toContain("MCP_AUTH_TOKEN");
+				const text = errorOf(() => loadConfig({}, { ...http, MCP_HOST: host }));
+				expect(text).toContain("set MCP_AUTH_TOKEN");
 			}
 		});
 
@@ -166,14 +153,9 @@ describe("HTTP security keys", () => {
 			}
 		});
 
-		test("a token or MCP_ALLOW_UNAUTHENTICATED=true lets it start", () => {
-			const withToken = loadConfig({}, { ...http, MCP_HOST: "0.0.0.0", MCP_AUTH_TOKEN: TOKEN });
-			expect(withToken.mcpAuthToken).toBe(TOKEN);
-			const optOut = loadConfig(
-				{},
-				{ ...http, MCP_HOST: "0.0.0.0", MCP_ALLOW_UNAUTHENTICATED: "true" },
-			);
-			expect(optOut.mcpAllowUnauthenticated).toBe(true);
+		test("a token lets it start", () => {
+			const config = loadConfig({}, { ...http, MCP_HOST: "0.0.0.0", MCP_AUTH_TOKEN: TOKEN });
+			expect(config.mcpAuthToken).toBe(TOKEN);
 		});
 	});
 });

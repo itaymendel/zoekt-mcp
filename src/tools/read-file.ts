@@ -5,15 +5,9 @@ import {
 	MAX_FETCH_BYTES,
 	MAX_OUTPUT_CHARS,
 	MAX_WINDOW_LINES,
-	resolveRange,
 } from "../file-format.js";
-import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import type { ZoektClient } from "../zoekt/client.js";
-import {
-	ZoektAmbiguousFileError,
-	ZoektFileNotFoundError,
-	ZoektFileNotIndexedError,
-} from "../zoekt/errors.js";
+import { ZoektAmbiguousFileError, ZoektFileNotFoundError } from "../zoekt/errors.js";
 import { exactRepoAtom } from "../zoekt/query.js";
 import type { Tool } from "./tool.js";
 
@@ -57,7 +51,12 @@ async function readFile(
 	const { repo, branch } = input;
 	const path = cleanPath(input.path);
 	if (path === "") throw new Error("path must not be empty.");
-	const range = resolveRange(input.startLine, input.endLine);
+	const startLine = input.startLine;
+	const wanted = input.endLine ?? startLine + DEFAULT_WINDOW_LINES - 1;
+	if (wanted < startLine) {
+		throw new Error(`endLine (${wanted}) must not be before startLine (${startLine}).`);
+	}
+	const range = { startLine, endLine: Math.min(wanted, startLine + MAX_WINDOW_LINES - 1) };
 	const req = { signal: ctx.signal };
 
 	// One listRepos at most, shared by the branch check and any error explanation.
@@ -72,10 +71,9 @@ async function readFile(
 	// /print would silently match it as a substring.
 	if (branch !== undefined && branch !== "HEAD") {
 		const names = await indexedBranches();
-		if (!names) throw repoNotFound(repo);
-		if (!names.includes(branch)) {
+		if (!names?.includes(branch)) {
 			throw new Error(
-				`Branch "${branch}" is not indexed for ${repo}. Indexed branches: ${names.join(", ") || "(none)"}.`,
+				`Branch "${branch}" is not indexed for ${repo}. Indexed branches: ${names?.join(", ") || "(none; check the repository name with list_repos)"}.`,
 			);
 		}
 	}
@@ -85,60 +83,30 @@ async function readFile(
 	try {
 		printed = await client.print(repo, path, branch, MAX_FETCH_BYTES, req);
 	} catch (error) {
-		throw await explainPrintError(error, { repo, path, branch, indexedBranches });
+		if (error instanceof ZoektFileNotFoundError) {
+			throw new Error(
+				`File not found: ${repo}:${path}${branch ? ` (branch ${branch})` : ""}. The path must be exact and relative to the repository root; use search with \`f:\` to find it, or list_repos to check the repository name.`,
+			);
+		}
+		if (error instanceof ZoektAmbiguousFileError) {
+			const names = (await indexedBranches()) ?? [];
+			const listing = `Indexed branches: ${names.join(", ") || "(unknown)"}.`;
+			const where = `Multiple indexed versions of ${repo}:${path}`;
+			throw new Error(
+				branch
+					? `${where} match branch "${branch}". ${branch === names[0] ? `Pass branch: "HEAD" to read the default branch. ` : ""}${listing}`
+					: `${where} exist (content differs between branches). Pass branch. ${listing}`,
+			);
+		}
+		throw error;
 	}
 
 	return formatFile(printed.bytes, printed.truncated, { repo, path }, range);
 }
 
-/** The error to show for a failed /print: typed Zoekt errors get a specific message, others pass through. */
-async function explainPrintError(
-	error: unknown,
-	ctx: {
-		repo: string;
-		path: string;
-		branch?: string;
-		/** Indexed branch names of `repo` (default branch first); undefined when the repo is not indexed. */
-		indexedBranches(): Promise<string[] | undefined>;
-	},
-): Promise<unknown> {
-	const { repo, path, branch } = ctx;
-	if (error instanceof ZoektFileNotFoundError) {
-		const names = await ctx.indexedBranches();
-		if (!names) return repoNotFound(repo);
-		return new Error(
-			`File not found: ${repo}:${path}${branch ? ` (branch ${branch})` : ""}. The path must be exact and relative to the repository root; use search with \`f:\` to find it.`,
-		);
-	}
-	if (error instanceof ZoektAmbiguousFileError) {
-		const names = (await ctx.indexedBranches()) ?? [];
-		const listing = `Indexed branches: ${names.join(", ") || "(unknown)"}.`;
-		const where = `Multiple indexed versions of ${repo}:${path}`;
-		if (!branch) {
-			return new Error(
-				`${where} exist (content differs between branches). Pass branch. ${listing}`,
-			);
-		}
-		return new Error(
-			`${where} match branch "${branch}". ${branch === names[0] ? `Pass branch: "HEAD" to read the default branch. ` : ""}${listing}`,
-		);
-	}
-	if (error instanceof ZoektFileNotIndexedError) {
-		return new Error(`${error.message}. read_file returns indexed text files only.`);
-	}
-	return error;
-}
-
-function repoNotFound(repo: string): Error {
-	return new Error(
-		`Repository not found: ${repo}. Use list_repos to find the exact repository name.`,
-	);
-}
-
 export const readFileTool: Tool<typeof inputSchema> = {
 	name: "read_file",
 	title: "Read file",
-	annotations: READ_ONLY_ANNOTATIONS,
 	description,
 	inputSchema,
 	execute: readFile,

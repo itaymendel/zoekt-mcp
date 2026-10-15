@@ -17,29 +17,13 @@ export interface ServerDeps {
 
 const TOOLS: Tool[] = [searchTool, listReposTool, readFileTool];
 
-function registerTool(server: McpServer, { client, logger }: ServerDeps, tool: Tool) {
-	const { name, title, annotations, description, inputSchema } = tool;
-	// The SDK validates, strips unknown keys and applies defaults before invoking the handler.
-	server.registerTool(
-		name,
-		{ title, annotations, description, inputSchema },
-		async (input: Record<string, unknown>, ctx: ServerContext) => {
-			try {
-				logger.debug({ tool: name, input }, `Executing ${name}`);
-				const text = await tool.execute(client, input, { signal: ctx.mcpReq.signal });
-				logger.debug({ tool: name }, `${name} finished`);
-				return { content: [{ type: "text" as const, text }] };
-			} catch (error) {
-				const message = getErrorMessage(error);
-				logger.error({ tool: name, error: message }, `${name} failed`);
-				return {
-					content: [{ type: "text" as const, text: `${name} error: ${message}` }],
-					isError: true as const,
-				};
-			}
-		},
-	);
-}
+/** Every tool only reads from Zoekt. */
+const READ_ONLY_ANNOTATIONS = {
+	readOnlyHint: true,
+	idempotentHint: true,
+	destructiveHint: false,
+	openWorldHint: false,
+};
 
 /** Builds a fresh McpServer around the given dependencies; the Zoekt client is shared. */
 export function createMcpServer(deps: ServerDeps): McpServer {
@@ -48,7 +32,30 @@ export function createMcpServer(deps: ServerDeps): McpServer {
 		{ instructions: SERVER_INSTRUCTIONS },
 	);
 
-	for (const tool of TOOLS) registerTool(server, deps, tool);
+	const { client, logger } = deps;
+	for (const tool of TOOLS) {
+		const { name, title, description, inputSchema } = tool;
+		// The SDK validates, strips unknown keys and applies defaults before invoking the handler.
+		server.registerTool(
+			name,
+			{ title, annotations: READ_ONLY_ANNOTATIONS, description, inputSchema },
+			async (input: Record<string, unknown>, ctx: ServerContext) => {
+				try {
+					logger.debug({ tool: name, input }, `Executing ${name}`);
+					const text = await tool.execute(client, input, { signal: ctx.mcpReq.signal });
+					logger.debug({ tool: name }, `${name} finished`);
+					return { content: [{ type: "text" as const, text }] };
+				} catch (error) {
+					const message = getErrorMessage(error);
+					logger.error({ tool: name, error: message }, `${name} failed`);
+					return {
+						content: [{ type: "text" as const, text: `${name} error: ${message}` }],
+						isError: true as const,
+					};
+				}
+			},
+		);
+	}
 
 	return server;
 }

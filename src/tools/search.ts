@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { READ_ONLY_ANNOTATIONS } from "../instructions.js";
 import { DEFAULT_OUTPUT_CHARS, formatSearch } from "../search-format.js";
 import type { Tool } from "./tool.js";
 
@@ -46,7 +45,6 @@ Repos appear as \`# <repo>\` and files as \`## <path>\`. Rows are \`<line>:<text
 export const searchTool: Tool<typeof inputSchema> = {
 	name: "search",
 	title: "Search code",
-	annotations: READ_ONLY_ANNOTATIONS,
 	description,
 	inputSchema,
 	async execute(client, { query, maxFiles, contextLines }, ctx) {

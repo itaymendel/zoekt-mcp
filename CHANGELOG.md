@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`search` parameter `limit` is replaced by `maxFiles`** (1-100, default 20). `contextLines` defaults to 2 (was 3).
 - **`list_repos` is reworked.** `filter` is an unanchored, case-insensitive regex on the repository name; new `limit` (1-200, default 50) and `offset`; one line per repository, sorted by name, with a paging footer.
 - **HTTP is stateless Streamable HTTP at `POST /mcp`.** `GET /sse` and `POST /messages` return 410 Gone, `/health` and `/` are removed (use `/healthz`), and CORS is removed (browser-based clients are unsupported). SSE-only clients need a bridge such as `mcp-remote`, or stdio.
-- **Safer defaults.** The transport is never auto-detected (stdio unless `--transport http` / `MCP_TRANSPORT=http`); HTTP binds to `127.0.0.1` (was `0.0.0.0`) and a non-loopback bind needs `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` or `MCP_ALLOW_UNAUTHENTICATED=true`, otherwise it exits 2; `Host` and `Origin` validation on `/mcp` is always on (403); request bodies are capped at 1 MiB.
+- **Safer defaults.** The transport is never auto-detected (stdio unless `--transport http` / `MCP_TRANSPORT=http`); HTTP binds to `127.0.0.1` (was `0.0.0.0`) and a non-loopback bind needs `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE`, otherwise it exits 2; `Host` and `Origin` validation on `/mcp` is always on (403); request bodies are capped at 1 MiB.
 - **`--timeout` / `ZOEKT_TIMEOUT_MS` are removed.** The Zoekt request timeout is a fixed 30 seconds.
 - **`ZOEKT_URL` / `--url` must be an `http://` or `https://` URL.**
 - **Requirements and packaging.** Node.js >= 22 (was >= 18) and a Zoekt webserver from 2025-01-30 or later (`read_file` uses `/print?format=raw`). The package has zero runtime dependencies and is CLI-only (`main` is removed).
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Server `instructions` and title, tool titles and read-only annotations on `search`, `list_repos` and `read_file`.
 - `GET /healthz` (process liveness; never touches Zoekt).
-- `MCP_ALLOWED_HOSTS`, `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` and `MCP_ALLOW_UNAUTHENTICATED` for the HTTP transport.
+- `MCP_ALLOWED_HOSTS`, `MCP_AUTH_TOKEN` / `MCP_AUTH_TOKEN_FILE` for the HTTP transport.
 - Context lines in `search` output.
 - Cancellation: a client abort cancels the in-flight Zoekt request.
 - Clear errors: `Cannot reach Zoekt at <URL> (ECONNREFUSED)`, `Zoekt request timed out after <ms>ms`, and Zoekt's own error text for bad queries.

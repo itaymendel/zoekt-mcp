@@ -1,6 +1,7 @@
 import type { Logger } from "../logger.js";
 import { redactUrl } from "../utils.js";
 import {
+	notIndexedReason,
 	ZoektAmbiguousFileError,
 	ZoektError,
 	ZoektFileNotFoundError,
@@ -36,14 +37,8 @@ interface RequestOptions {
 	signal?: AbortSignal;
 }
 
-interface PrintResult {
-	bytes: Uint8Array;
-	truncated: boolean;
-}
-
-/** A successful (2xx) answer; non-2xx never leaves `request()`. */
-interface RawResponse {
-	contentType: string;
+/** A response body, cut off at the byte cap when `truncated`. */
+interface Body {
 	bytes: Uint8Array;
 	truncated: boolean;
 }
@@ -113,7 +108,7 @@ export class ZoektClient {
 		branch?: string,
 		maxBytes?: number,
 		req: RequestOptions = {},
-	): Promise<PrintResult> {
+	): Promise<Body> {
 		const raw = await this.request(
 			"print",
 			{ r: repo, f: path, b: branch, format: "raw" },
@@ -123,8 +118,12 @@ export class ZoektClient {
 		);
 
 		if (!raw.truncated && raw.bytes.length <= NOT_INDEXED_MAX_BYTES) {
-			const stub = notIndexedFromStub(utf8.decode(raw.bytes), repo, path);
-			if (stub) throw stub;
+			const why = notIndexedReason(utf8.decode(raw.bytes));
+			if (why !== undefined) {
+				throw new ZoektFileNotIndexedError(
+					`File is not indexed by Zoekt (${why}): ${repo}:${path}`,
+				);
+			}
 		}
 
 		this.logger.debug(
@@ -176,7 +175,7 @@ export class ZoektClient {
 		accept: string,
 		req: RequestOptions,
 		maxBytes?: number,
-	): Promise<RawResponse> {
+	): Promise<Body & { contentType: string }> {
 		const search = new URLSearchParams();
 		for (const [key, value] of Object.entries(params)) {
 			if (value !== undefined) search.set(key, String(value));
@@ -190,7 +189,7 @@ export class ZoektClient {
 		const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
 
 		let response: Response;
-		let body: { bytes: Uint8Array; truncated: boolean };
+		let body: Body;
 		try {
 			response = await this.fetchFn(url, {
 				signal,
@@ -246,10 +245,7 @@ export class ZoektClient {
 	}
 }
 
-async function readBody(
-	response: Response,
-	maxBytes?: number,
-): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+async function readBody(response: Response, maxBytes?: number): Promise<Body> {
 	if (maxBytes === undefined || !response.body) {
 		return { bytes: new Uint8Array(await response.arrayBuffer()), truncated: false };
 	}
@@ -284,12 +280,4 @@ function capBody(body: string): string {
 	const text = body.trim();
 	if (text.length <= MAX_ERROR_BODY) return text;
 	return `${text.slice(0, MAX_ERROR_BODY)}… (truncated, ${text.length} chars total)`;
-}
-
-// Heuristic: /print gives no out-of-band signal, so a short body that is exactly
-// `NOT-INDEXED: <reason>` is taken as the stub. A real file holding only that line is a false positive.
-function notIndexedFromStub(body: string, repo: string, path: string) {
-	const why = /^NOT-INDEXED: (.+)$/.exec(body.trim())?.[1];
-	if (why === undefined) return undefined;
-	return new ZoektFileNotIndexedError(`File is not indexed by Zoekt (${why}): ${repo}:${path}`);
 }

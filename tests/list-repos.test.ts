@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { formatRepoList, redactUrl } from "../src/utils.js";
+import { formatRepoList } from "../src/tools/list-repos.js";
+import { redactUrl } from "../src/utils.js";
 import { RepoListWireSchema } from "../src/zoekt/types.js";
 import { expectGolden } from "./helpers/golden.js";
 import { hangingFetch } from "./helpers/hanging-fetch.js";

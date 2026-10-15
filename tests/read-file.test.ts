@@ -203,25 +203,23 @@ describe("read_file errors", () => {
 
 	test("file not found names the file", async () => {
 		const { text } = await callRead(
-			{ "/print": "print-not-found", "/search": "list-all" },
+			{ "/print": "print-not-found" },
 			{ repo: ALPHA, path: "nope.txt" },
 		);
 
 		expect(text).toStartWith("read_file error: File not found: example.test/alpha:nope.txt.");
 		expect(text).toContain("search with `f:`");
+		expect(text).toContain("list_repos");
 	});
 
-	test("unknown repository, with or without a branch", async () => {
-		for (const branch of [undefined, "main"]) {
-			const { text } = await callRead(
-				{ "/print": "print-not-found", "/search": noRepos },
-				{ repo: "example.test/zzz", path: "nope.txt", branch },
-			);
+	test("unknown repository with a branch points at list_repos", async () => {
+		const { text } = await callRead(
+			{ "/print": "print-not-found", "/search": noRepos },
+			{ repo: "example.test/zzz", path: "nope.txt", branch: "main" },
+		);
 
-			expect(text).toStartWith("read_file error: Repository not found: example.test/zzz.");
-			await mcp?.close();
-			mcp = undefined;
-		}
+		expect(text).toStartWith('read_file error: Branch "main" is not indexed for example.test/zzz.');
+		expect(text).toContain("list_repos");
 	});
 
 	test("ambiguous without branch", async () => {
@@ -254,7 +252,7 @@ describe("read_file errors", () => {
 
 		expect(result.isError).toBe(true);
 		expect(text).toBe(
-			"read_file error: File is not indexed by Zoekt (contains binary content): example.test/delta:bin.dat. read_file returns indexed text files only.",
+			"read_file error: File is not indexed by Zoekt (contains binary content): example.test/delta:bin.dat",
 		);
 		expect(text).not.toContain("1:NOT-INDEXED");
 	});
@@ -266,7 +264,7 @@ describe("read_file errors", () => {
 		);
 
 		expect(result.isError).toBe(true);
-		expect(text).toContain("exceeds the maximum size limit): example.test/alpha:big.sql.");
+		expect(text).toContain("exceeds the maximum size limit): example.test/alpha:big.sql");
 		expect(text).not.toContain("1:NOT-INDEXED");
 	});
 });

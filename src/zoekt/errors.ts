@@ -6,9 +6,18 @@ export class ZoektError extends Error {
 	}
 }
 
-// The three file errors below only exist so read_file can catch them by type.
+// The file errors below are typed so callers can tell them apart.
 export class ZoektFileNotFoundError extends ZoektError {}
 
 export class ZoektAmbiguousFileError extends ZoektError {}
 
 export class ZoektFileNotIndexedError extends ZoektError {}
+
+/**
+ * Zoekt gives no out-of-band signal for files it skipped (binary, too large): it indexes a stub
+ * that is exactly `NOT-INDEXED: <reason>`. Heuristic: a real file holding only that line is taken
+ * as the stub too. Returns the reason, or undefined for anything else.
+ */
+export function notIndexedReason(text: string): string | undefined {
+	return /^NOT-INDEXED: (.+)$/.exec(text.trim())?.[1];
+}

@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import pkg from "../package.json";
-import { ConfigError, isExposedWithoutAuth, loadConfig } from "./config.js";
+import { loadConfig } from "./config.js";
 import { createHttpServer } from "./http.js";
 import type { Logger } from "./logger.js";
 import { createLogger } from "./logger.js";
@@ -27,8 +27,8 @@ Options:
   -v, --version        Show the version
 
 Every option also has an environment variable (--url is ZOEKT_URL, and so on).
-HTTP security settings are environment-only: MCP_AUTH_TOKEN, MCP_AUTH_TOKEN_FILE,
-MCP_ALLOWED_HOSTS and MCP_ALLOW_UNAUTHENTICATED.
+HTTP security settings are environment-only: MCP_AUTH_TOKEN, MCP_AUTH_TOKEN_FILE and
+MCP_ALLOWED_HOSTS.
 Exit code 2 means a usage or configuration error.
 
 Example: zoekt-mcp --url http://localhost:6070
@@ -73,7 +73,13 @@ async function main(): Promise<void> {
 
 	try {
 		const cliArgs = parseCliArgs();
-		const config = loadConfig(cliArgs);
+		let config: ReturnType<typeof loadConfig>;
+		try {
+			config = loadConfig(cliArgs);
+		} catch (error) {
+			console.error((error as Error).message);
+			process.exit(2);
+		}
 		logger = createLogger(config.logLevel);
 
 		logger.info(
@@ -105,12 +111,6 @@ async function main(): Promise<void> {
 				authToken: config.mcpAuthToken,
 			});
 
-			// loadConfig already refused this unless MCP_ALLOW_UNAUTHENTICATED=true.
-			if (isExposedWithoutAuth(config) && config.mcpAllowUnauthenticated) {
-				logger.warn(
-					"MCP_ALLOW_UNAUTHENTICATED=true: serving /mcp on a non-loopback address without authentication",
-				);
-			}
 			await httpServer.start();
 			onShutdown(() => httpServer.close(), logger);
 		}
@@ -118,10 +118,6 @@ async function main(): Promise<void> {
 		if (String((error as NodeJS.ErrnoException).code).startsWith("ERR_PARSE_ARGS")) {
 			console.error(`Error: ${(error as Error).message}`);
 			console.error('Run "zoekt-mcp --help" for usage information.');
-			process.exit(2);
-		}
-		if (error instanceof ConfigError) {
-			console.error(error.message);
 			process.exit(2);
 		}
 		logger.error({ error: getErrorMessage(error) }, "Fatal error");

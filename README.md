@@ -87,7 +87,7 @@ All three are read-only and closed-world; clients that honour tool annotations c
 
 ## Security
 
-HTTP binds to `127.0.0.1`; any other bind needs `MCP_AUTH_TOKEN` (or `MCP_AUTH_TOKEN_FILE`) unless `MCP_ALLOW_UNAUTHENTICATED=true`. `/mcp` validates Host and Origin (loopback always allowed; add hostnames with `MCP_ALLOWED_HOSTS`), caps bodies at 1 MiB, and requires `Authorization: Bearer <token>` when a token is set. `/healthz` is exempt.
+HTTP binds to `127.0.0.1`; any other bind needs `MCP_AUTH_TOKEN` (or `MCP_AUTH_TOKEN_FILE`). `/mcp` validates Host and Origin (loopback always allowed; add hostnames with `MCP_ALLOWED_HOSTS`), caps bodies at 1 MiB, and requires `Authorization: Bearer <token>` when a token is set. `/healthz` is exempt.
 Credentials in `ZOEKT_URL` are sent as Basic auth and never logged. See the table below for every setting.
 
 ## Configuration
@@ -104,7 +104,6 @@ CLI flags take precedence over environment variables. Empty values count as unse
 | | `MCP_ALLOWED_HOSTS` | none | Extra `Host` hostnames, comma-separated |
 | | `MCP_AUTH_TOKEN` | none | Bearer token for `/mcp` (at least 16 characters) |
 | | `MCP_AUTH_TOKEN_FILE` | none | Read the token from a file (exclusive with `MCP_AUTH_TOKEN`) |
-| | `MCP_ALLOW_UNAUTHENTICATED` | `false` | `true` allows a non-loopback bind without a token |
 
 ## Troubleshooting
 

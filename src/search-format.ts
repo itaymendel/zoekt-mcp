@@ -1,5 +1,6 @@
 import { clipLine, cutEnd, splitLines, stripEol } from "./clip.js";
 import { pathHeading, plural, repoHeading } from "./utils.js";
+import { notIndexedReason } from "./zoekt/errors.js";
 import type { FileMatch, Match, SearchResponse } from "./zoekt/types.js";
 
 /** Character cap on the results of one `search` (the footer comes on top). */
@@ -90,16 +91,9 @@ function normalizeFile(file: FileMatch, { contextLines }: SearchFormatOptions): 
 	};
 }
 
-/**
- * Zoekt gives no other signal for files it skipped (binary, too large): it indexes a stub whose
- * first line starts with `NOT-INDEXED`. Heuristic: a real file whose first line begins with that
- * word is shown as not indexed too.
- */
-const NOT_INDEXED = /^NOT-INDEXED\b/;
-
 function isNotIndexed(file: SearchFile) {
 	const first = file.lines[0];
-	return first?.n === 1 && first.match && NOT_INDEXED.test(first.text);
+	return first?.n === 1 && first.match && notIndexedReason(first.text) !== undefined;
 }
 
 const branchKey = (f: SearchFile) => f.branches.join("\n");

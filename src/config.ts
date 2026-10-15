@@ -9,43 +9,27 @@ const TransportSchema = z.enum(["http", "stdio"], { error: 'must be "stdio" or "
 
 const MIN_TOKEN_LENGTH = 16;
 
-/** Whole-number string within [min, max]; anything else (incl. "1e3", "0x10", "1.5") fails. */
-function intString(min: number, max: number, message: string) {
-	return z
-		.string({ error: message })
-		.regex(/^\d+$/, message)
-		.transform(Number)
-		.pipe(z.number().int(message).min(min, message).max(max, message));
-}
-
-const boolString = (message: string) =>
-	z
-		.string({ error: message })
-		.transform((value) => value.toLowerCase())
-		.pipe(z.enum(["true", "false"], { error: message }))
-		.transform((value) => value === "true");
-
-/** Comma-separated list of `item`s; blanks are dropped. */
-const csvList = <T extends z.ZodType<unknown, string>>(item: T) =>
-	z
-		.string()
-		.transform((value) =>
-			value
-				.split(",")
-				.map((entry) => entry.trim())
-				.filter(Boolean),
-		)
-		.pipe(z.array(item));
+const PORT_MESSAGE = "must be an integer between 1 and 65535";
 
 // Bare hostnames only: ports are never pinned, and IPv6 must be bracketed ([::1]).
 const HOSTS_MESSAGE =
 	"must be comma-separated hostnames without ports (IPv6 in brackets, e.g. [::1])";
-const HostsSchema = csvList(
-	z
-		.string()
-		.regex(/^([^\s/:[\]*]+|\[[0-9a-f:.]+\])$/i, HOSTS_MESSAGE)
-		.transform((host) => host.toLowerCase()),
-);
+const HostsSchema = z
+	.string()
+	.transform((value) =>
+		value
+			.split(",")
+			.map((entry) => entry.trim())
+			.filter(Boolean),
+	)
+	.pipe(
+		z.array(
+			z
+				.string()
+				.regex(/^([^\s/:[\]*]+|\[[0-9a-f:.]+\])$/i, HOSTS_MESSAGE)
+				.transform((host) => host.toLowerCase()),
+		),
+	);
 
 /** Userinfo is percent-decoded into a Basic auth header, so a malformed `%` sequence is a config error. */
 function hasValidCredentialEncoding(value: string): boolean {
@@ -71,12 +55,17 @@ const ConfigSchema = z.object({
 		.refine(hasValidCredentialEncoding, {
 			message: "credentials are not valid percent-encoding",
 		}),
-	mcpPort: intString(1, 65535, "must be an integer between 1 and 65535").default(3000),
+	// Whole-number string only: "1e3", "0x10" and "1.5" all fail.
+	mcpPort: z
+		.string({ error: PORT_MESSAGE })
+		.regex(/^\d+$/, PORT_MESSAGE)
+		.transform(Number)
+		.pipe(z.number().int(PORT_MESSAGE).min(1, PORT_MESSAGE).max(65535, PORT_MESSAGE))
+		.default(3000),
 	mcpHost: z.string().default("127.0.0.1"),
 	mcpTransport: TransportSchema.default("stdio"),
 	logLevel: LogLevelSchema.default("info"),
 	mcpAllowedHosts: HostsSchema.default([]),
-	mcpAllowUnauthenticated: boolString('must be "true" or "false"').default(false),
 });
 
 type RawKey = keyof z.input<typeof ConfigSchema>;
@@ -92,7 +81,6 @@ const SOURCES: Record<RawKey, { flag?: string; env: string }> = {
 	mcpHost: { flag: "--host", env: "MCP_HOST" },
 	logLevel: { flag: "--log-level", env: "LOG_LEVEL" },
 	mcpAllowedHosts: { env: "MCP_ALLOWED_HOSTS" },
-	mcpAllowUnauthenticated: { env: "MCP_ALLOW_UNAUTHENTICATED" },
 };
 
 export type LogLevel = z.infer<typeof LogLevelSchema>;
@@ -118,21 +106,14 @@ interface ConfigIssue {
 }
 
 /** Human-readable stderr text; never JSON, never a zod dump. */
-export function formatConfigError(error: { issues: ConfigIssue[] }): string {
-	const lines = error.issues.map(({ flag, env, message, received }) => {
+function configError(issues: ConfigIssue[]): Error {
+	const lines = issues.map(({ flag, env, message, received }) => {
 		const name = flag ? `${flag} / ${env}` : env;
 		return `  ${name}: ${message}${received !== undefined ? ` (got "${received}")` : ""}`;
 	});
-	return ["zoekt-mcp: invalid configuration", ...lines, 'Run "zoekt-mcp --help" for usage.'].join(
-		"\n",
+	return new Error(
+		["zoekt-mcp: invalid configuration", ...lines, 'Run "zoekt-mcp --help" for usage.'].join("\n"),
 	);
-}
-
-export class ConfigError extends Error {
-	constructor(readonly issues: ConfigIssue[]) {
-		super(formatConfigError({ issues }));
-		this.name = "ConfigError";
-	}
 }
 
 /** `localhost`, 127.0.0.0/8 and ::1. */
@@ -145,15 +126,6 @@ function isLoopbackHost(host: string): boolean {
 function clean(value: string | undefined): string | undefined {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : undefined;
-}
-
-/** Listening on a non-loopback address with no bearer token. */
-export function isExposedWithoutAuth(config: {
-	mcpTransport: Transport;
-	mcpHost: string;
-	mcpAuthToken?: string;
-}): boolean {
-	return config.mcpTransport === "http" && !isLoopbackHost(config.mcpHost) && !config.mcpAuthToken;
 }
 
 export function loadConfig(
@@ -185,16 +157,16 @@ export function loadConfig(
 	}
 
 	const token = resolveToken(env, issues);
-	if (!result.success || issues.length > 0) throw new ConfigError(issues);
+	if (!result.success || issues.length > 0) throw configError(issues);
 
 	const config: Config = { ...result.data, mcpAuthToken: token };
-	if (isExposedWithoutAuth(config) && !config.mcpAllowUnauthenticated) {
-		throw new ConfigError([
+	if (config.mcpTransport === "http" && !isLoopbackHost(config.mcpHost) && !token) {
+		throw configError([
 			{
 				...SOURCES.mcpHost,
 				message:
 					"refusing to listen on a non-loopback address without authentication; set MCP_AUTH_TOKEN " +
-					"(or MCP_AUTH_TOKEN_FILE), or MCP_ALLOW_UNAUTHENTICATED=true to opt out",
+					"(or MCP_AUTH_TOKEN_FILE)",
 				received: config.mcpHost,
 			},
 		]);
