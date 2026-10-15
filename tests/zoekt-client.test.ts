@@ -152,6 +152,17 @@ describe("print streaming cap", () => {
 		expect(state.pulled).toBeLessThan(10);
 	});
 
+	test("an oversized search response is refused, not parsed", async () => {
+		const body = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				controller.enqueue(new Uint8Array(1024 * 1024).fill(32));
+			},
+		});
+		const { client } = testDeps((async () => new Response(body)) as unknown as Fetch);
+
+		expect((await rejection(client.search({ query: "x" }))).message).toContain("exceeded 32 MiB");
+	});
+
 	test("an endless error body is bounded too", async () => {
 		const state = { cancelled: false };
 		const body = new ReadableStream<Uint8Array>({

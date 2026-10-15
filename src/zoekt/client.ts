@@ -16,6 +16,8 @@ import {
 
 /** Longest Zoekt error body quoted in an error message. */
 const MAX_ERROR_BODY = 500;
+/** Longest /search response read; Zoekt bounds it by `num`, so hitting this means something is wrong. */
+const MAX_SEARCH_BYTES = 32 * 1024 * 1024;
 /** Never read more than this from an error response. */
 const MAX_ERROR_READ_BYTES = 64 * 1024;
 /** Longest non-JSON 200 body quoted in an error message. */
@@ -140,7 +142,13 @@ export class ZoektClient {
 			{ ...params, format: "json" },
 			"application/json",
 			req,
+			MAX_SEARCH_BYTES,
 		);
+		if (raw.truncated) {
+			throw new ZoektError(
+				`Zoekt /search response exceeded ${MAX_SEARCH_BYTES / 1024 / 1024} MiB; narrow the query`,
+			);
+		}
 
 		const text = utf8.decode(raw.bytes);
 		let json: unknown;
