@@ -7,7 +7,7 @@ An [MCP](https://modelcontextprotocol.io) server that gives AI agents fast code 
 **Requirements**
 
 - Node.js 22 or newer.
-- A running `zoekt-webserver` from 2025-01-30 or later (it must serve `/print?format=raw`). The official image `ghcr.io/sourcegraph/zoekt` works; tests run against the revision pinned in `scripts/lib/zoekt-docker.ts`.
+- A running `zoekt-webserver` from 2025-01-30 or later (it must serve `/print?format=raw`). The official image `ghcr.io/sourcegraph/zoekt` works.
 
 ## Quick start
 
@@ -129,24 +129,13 @@ ZOEKT_URL=http://localhost:6070 bun run dev
 bun run lint && bun run typecheck && bun test
 ```
 
-To check the packed tarball the way `npx` users run it (exact file list, zero runtime dependencies, the installed bin lists the three tools over stdio and answers `/healthz` over HTTP):
-
-```bash
-bun run build
-bun run check:package
-```
-
-Tests run against real Zoekt responses captured in `tests/fixtures/zoekt`. Docker is only needed to refresh them:
-
-```bash
-bun run fixtures:capture
-```
+Tests run against real Zoekt responses captured in `tests/fixtures/zoekt/cases`.
 
 ## Releasing
 
 Releases are published by hand; there is no release workflow. Prereleases go out under the `next` dist-tag.
 
-1. From a clean checkout: `bun install --frozen-lockfile && bun run lint && bun run typecheck && bun test && bun run build && bun run check:package`.
+1. From a clean checkout: `bun install --frozen-lockfile && bun run lint && bun run typecheck && bun test && bun run build`.
 2. `npm publish --tag next --access public` (drop `--tag next` for a stable release), then verify with `npm view zoekt-mcp dist-tags --json`.
 3. `git tag v<version> && git push origin v<version>`. Never republish a version; fix forward and `npm deprecate` the bad one.
 

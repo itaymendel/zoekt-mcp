@@ -16,6 +16,6 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "tests", "scripts"],
+  "include": ["src", "tests"],
   "exclude": ["node_modules", "dist"]
 }

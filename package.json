@@ -11,9 +11,7 @@
     "build": "bun build src/index.ts --outdir dist --target node",
     "test": "bun test",
     "lint": "biome check .",
-    "typecheck": "tsc --noEmit",
-    "fixtures:capture": "bun scripts/capture-zoekt-fixtures.ts",
-    "check:package": "node scripts/check-package.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

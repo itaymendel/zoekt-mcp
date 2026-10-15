@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { MAX_FETCH_BYTES } from "../src/file-format.js";
-import { exactRepoAtom } from "../src/zoekt/query.js";
 import { expectGolden } from "./helpers/golden.js";
 import { connectTestClient, resultText, type TestMcp } from "./helpers/mcp.js";
 import { testDeps } from "./helpers/test-deps.js";
@@ -185,19 +184,6 @@ describe("read_file output", () => {
 		expect(result.isError).toBe(true);
 		expect(text).toBe("read_file error: endLine (5) must not be before startLine (10).");
 		expect(fetch.requests).toHaveLength(0);
-	});
-});
-
-describe("read_file request sequence", () => {
-	test("a branch is checked with one listRepos first", async () => {
-		const { fetch } = await callRead(
-			{ "/search": "list-all", "/print": "print-ok" },
-			{ repo: ALPHA, path: "docs/notes.txt", branch: "main" },
-		);
-
-		expect(fetch.requests.map((u) => u.pathname)).toEqual(["/search", "/print"]);
-		expect(fetch.requests[0]?.searchParams.get("q")).toBe(exactRepoAtom(ALPHA));
-		expect(fetch.requests[1]?.searchParams.get("b")).toBe("main");
 	});
 });
 

@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { type SearchResponse, SearchResultSchema } from "../../src/zoekt/types.js";
-import { CASES_URL, MANIFEST_URL } from "./fixture-repo.js";
+import { CASES_URL } from "./fixture-repo.js";
 
-/** One captured Zoekt exchange, as written by scripts/capture-zoekt-fixtures.ts. */
+/** One captured Zoekt exchange. */
 export interface ZoektCase {
 	request: { method: string; path: string; query: Record<string, string> };
 	response: {
@@ -11,17 +11,6 @@ export interface ZoektCase {
 		body?: unknown;
 		bodyText?: string;
 	};
-}
-
-/** Shape of tests/fixtures/zoekt/MANIFEST.json. */
-export interface ZoektManifest {
-	image: string;
-	/** case file name -> sha256 of the file contents */
-	cases: Record<string, string>;
-}
-
-export function loadManifest(): ZoektManifest {
-	return JSON.parse(readFileSync(MANIFEST_URL, "utf8")) as ZoektManifest;
 }
 
 export function loadCase(name: string): ZoektCase {

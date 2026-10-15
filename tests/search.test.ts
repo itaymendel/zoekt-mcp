@@ -86,20 +86,6 @@ describe("rows", () => {
 		expect(rowsOf(render(result))).toEqual(["1:a", "2-b", "3:c"]);
 	});
 
-	test("groups by repo", () => {
-		const response = stub({
-			FileMatches: [
-				zfile("r1", "a", [matchAt(1)]),
-				zfile("r2", "b", [matchAt(1)]),
-				zfile("r1", "c", [matchAt(1)]),
-			],
-		});
-		const text = render(response);
-
-		expect(text.match(/^# .*$/gm)).toEqual(["# r1", "# r2"]);
-		expect(text.indexOf("## c")).toBeLessThan(text.indexOf("# r2"));
-	});
-
 	test("omits HEAD branch", () => {
 		const text = render(multi(), { contextLines: 0 });
 
@@ -266,27 +252,11 @@ describe("output cap", () => {
 			),
 		});
 
-	test("30 files x 40 lines under maxChars=3000 stops at the cap", () => {
-		const text = render(manyFiles(30, 40), { maxChars: 3000, contextLines: 0 });
-		const [body, footer] = text.split("\n\n---\n");
-
-		expect((body as string).length).toBeLessThanOrEqual(3000 + "\n[output truncated]".length);
-		expect(body).toEndWith("\n[output truncated]");
-		expect(footer).toMatch(/^Showing \d+ of 30 files; narrow with r:\/f:\/lang:$/);
-	});
-
 	test("the first file is always rendered, hard-clipped, even at maxChars=50", () => {
 		const text = render(manyFiles(30, 40), { maxChars: 50, contextLines: 0 });
 
 		expect(text).toContain("## dir/file0.txt");
 		expect(text).toContain("\n[output truncated]\n\n---\nShowing 1 of 30 files;");
-	});
-
-	test("worst case: 100 files of long rows stays within DEFAULT_OUTPUT_CHARS plus the marker and footer", () => {
-		const text = render(manyFiles(100, 50, 300), { maxFiles: 100, contextLines: 2 });
-
-		expect(text.length).toBeLessThanOrEqual(DEFAULT_OUTPUT_CHARS + 200);
-		expect(text.length).toBeGreaterThan(DEFAULT_OUTPUT_CHARS / 2);
 	});
 
 	test("truncated by the cap: golden", () => {

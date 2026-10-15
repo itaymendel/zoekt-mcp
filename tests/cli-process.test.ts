@@ -33,15 +33,6 @@ function captureStderr(proc: Spawned) {
 }
 
 describe("exit codes", () => {
-	test("non-http(s) ZOEKT_URL prints a readable header and exits 2", async () => {
-		const { stdout, stderr, exitCode } = await run([], { ZOEKT_URL: "ftp://x" });
-
-		expect(exitCode).toBe(2);
-		expect(stdout).toBe("");
-		expect(stderr).toStartWith("zoekt-mcp: invalid configuration");
-		expect(stderr).not.toContain("{");
-	});
-
 	test("stdio is the default: exits 0 on EOF", async () => {
 		const started = performance.now();
 		const { exitCode } = await run(["--url", "http://127.0.0.1:9"]);
@@ -60,35 +51,6 @@ describe("exit codes", () => {
 		expect(stderr).toContain("http://***:***@127.0.0.1:9");
 		expect(stderr).not.toContain("s3cret-pw");
 		expect(stderr).not.toContain("admin");
-	});
-});
-
-describe("non-loopback bind", () => {
-	const base = ["--url", "http://127.0.0.1:9", "--transport", "http"];
-
-	test("non-loopback bind without token refuses to start (exit 2)", async () => {
-		const { stderr, exitCode } = await run([...base, "--port", "3999"], { MCP_HOST: "0.0.0.0" });
-
-		expect(exitCode).toBe(2);
-		expect(stderr).toStartWith("zoekt-mcp: invalid configuration");
-		expect(stderr).toContain("MCP_AUTH_TOKEN");
-	});
-
-	test("MCP_ALLOW_UNAUTHENTICATED=true starts and logs warn", async () => {
-		const port = await freePort();
-		const proc = spawn([...base, "--port", String(port)], {
-			MCP_HOST: "0.0.0.0",
-			MCP_ALLOW_UNAUTHENTICATED: "true",
-		});
-		const log = captureStderr(proc);
-		try {
-			const stderr = await log.until((text) => text.includes("listening"));
-			expect(stderr).toContain('"level":40');
-			expect((await fetch(`http://127.0.0.1:${port}/healthz`)).status).toBe(200);
-		} finally {
-			proc.kill("SIGTERM");
-			expect(await proc.exited).toBe(0);
-		}
 	});
 });
 

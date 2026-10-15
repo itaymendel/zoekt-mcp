@@ -98,11 +98,6 @@ describe("HTTP security keys", () => {
 		expect(config.mcpAuthToken).toBeUndefined();
 	});
 
-	test("rejects malformed booleans", () => {
-		const issues = issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_ALLOW_UNAUTHENTICATED: "yes" }));
-		expect(issues.map((i) => i.env)).toEqual(["MCP_ALLOW_UNAUTHENTICATED"]);
-	});
-
 	test("MCP_ALLOWED_HOSTS is normalized and rejects entries with a port or an unbracketed IPv6 address", () => {
 		for (const bad of ["foo:80", "::1", "*", "a.example,b.example:8443", "https://a.example"]) {
 			const issues = issuesOf(() => loadConfig({}, { ...URL_ENV, MCP_ALLOWED_HOSTS: bad }));

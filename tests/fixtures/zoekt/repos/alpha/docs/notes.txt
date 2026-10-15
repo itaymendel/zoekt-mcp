@@ -1,5 +1,0 @@
-first line
-needle one
-third line
-needle two
-needle three
