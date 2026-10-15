@@ -83,7 +83,7 @@ Credentials in `ZOEKT_URL` are sent as Basic auth and never logged. On a loopbac
 
 ## Configuration
 
-CLI flags take precedence over environment variables. Empty values count as unset. Invalid flags or environment values print a readable message to stderr and exit with code 1. `zoekt-mcp --help` lists every option.
+CLI flags take precedence over environment variables. Invalid flags or environment values print a readable message to stderr and exit with code 1. `zoekt-mcp --help` lists every option.
 
 | Flag | Environment variable | Default | Description |
 | --- | --- | --- | --- |
